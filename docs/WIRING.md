@@ -96,7 +96,7 @@ Source: `guido57/EBAZ4205_SDR_spectrum`, `AD9851_test/AD9851_test.srcs/constrs_1
 | G19 | LVCMOS33 | `AD9851_sd_out` | DATA2_7 | Serial data (W-CLK/serial load bit, DDS "D7"/serial-mode data pin) |
 | H20 | LVCMOS33 | `AD9851_clock_out` | DATA2_8 | W_CLK (word load clock) |
 | J19 | LVCMOS33 | `AD9851_fq_ud_out` | DATA2_9 | FQ_UD (frequency update strobe) |
-| K18 | LVCMOS33 | `AD9851_pwm_out` | DATA2_11 | Reset or a PWM-derived control line (confirm against your module's silkscreen — name suggests PWM-based control, not a standard AD9850/9851 pin, possibly driving an RC-filtered analog control voltage on that specific breakout) |
+| K18 | LVCMOS33 | `AD9851_pwm_out` | DATA2_11 | RESET (confirmed — see below; despite the guido57 project's own `_pwm_out` signal name, this line maps to the user's module's `REST`/RESET pin) |
 
 This is the AD9851 (a close sibling of your AD9850 — same serial-load
 protocol, AD9851 just adds a ×6 reference multiplier and goes higher in
@@ -109,13 +109,34 @@ lines. Map:
 | D7 (serial data) | `AD9851_sd_out` → DATA2_7 |
 | W_CLK | `AD9851_clock_out` → DATA2_8 |
 | FQ_UD | `AD9851_fq_ud_out` → DATA2_9 |
-| RESET | `AD9851_pwm_out` → DATA2_11 *(verify — see caveat above)* |
+| RESET | `AD9851_pwm_out` → DATA2_11 |
 
-Confirm the 4th line against your specific AD9850 module's silkscreen
-before wiring — if it's labeled `RESET` you're fine with the mapping
-above; if the guido57 project is instead driving something PWM-specific
-to their module, you may need only 3 of these 4 lines for a standard
-AD9850 (RESET can often be tied to a GPIO you control directly instead).
+**4th line resolved**: a photo of the user's actual module confirms the
+chip is a genuine `AD9850BRSZ`, and its own silkscreen has a pin
+labeled `REST` (RESET) alongside `WCLK`, `FQUP` (FQ_UD), and the
+`D0`–`D7` parallel/serial data bus — this is the standard AD9850 serial
+interface, and it does map to `RESET` as hoped. The mapping above can
+be treated as confirmed rather than needing further verification.
+
+The board also exposes the full parallel `D0`–`D7` bus (for the
+AD9850's byte-load parallel programming mode) — not needed here since
+we're using the 4-wire serial mode above (only `D7` is used, as the
+serial-data line); leave `D0`–`D6` unconnected.
+
+**Analog side** (a second, separate header on this module, not part of
+the digital control interface above): `OUT`/`OUT_N` (the DAC's
+differential current-output pins — typically only `OUT` is used,
+terminated per the AD9850 datasheet's reference design, usually with a
+matching load resistor on `OUT_N` rather than leaving it floating),
+`PWD_N` (power-down control, active-low by the naming — tie high for
+normal always-on operation, or drive from a GPIO if software-controlled
+power-down is wanted), and `VINN`/`VINP` (the chip's onboard comparator
+inputs, used only if you want AD9850's squared-up digital clock output
+feature — not needed for using this as an analog LO/exciter, safe to
+leave unconnected). Confirm the exact termination for `OUT_N` against
+the AD9850 datasheet's typical application circuit before final
+assembly — leaving it floating vs. properly terminated affects output
+purity, not just connectivity.
 
 ## 4. AD9226 module: power and input conditioning
 
@@ -383,8 +404,11 @@ find and I'll fold it into this doc and the XDC.
    a format/OEB select, and compare its position to
    `AD9226 two's complement settings.jpg` from the reference repo if you
    can get eyes on that file.
-5. **Confirm your AD9850 module's 4th control line** (§3) — check its
-   silkscreen for a pin labeled `RESET` near the D7/W_CLK/FQ_UD trio.
+5. ~~Confirm your AD9850 module's 4th control line~~ — **done**, see §3;
+   confirmed `RESET` from a photo of the actual module.
+6. **Confirm the AD9850's `OUT_N` termination** (§3) against the
+   datasheet's reference design — affects output signal purity, not
+   just connectivity.
 
 Also still open, lower priority:
 
