@@ -25,28 +25,48 @@ later steps assume earlier ones actually passed.
 - [ ] Vivado 2021.2 installed (matching the reference projects; a newer
       version will likely work but may prompt IP upgrades on open)
 - [ ] EBAZ4205 board in hand
-- [ ] Both FT2232H adapter boards in hand (see §1 for which does what)
+- [ ] Both FTDI adapter boards in hand (see §1 for which does what —
+      one is likely FT4232H, not FT2232H, per a closer photo)
 - [ ] One AD9226 module + its own external 5V supply (needed from §3
       onward, not for §2's LED-only check)
 - [ ] This repo cloned/available locally where Vivado can reach it
 
 ## 1. JTAG and UART adapter setup
 
-Both boards you have are generic **FTDI FT2232H** breakouts (a dual-
-channel USB-to-serial/JTAG chip), not genuine Xilinx/Digilent cables —
-but the FT2232H is the same chip Digilent's own HS2/HS3 cables use, so
-this is a well-trodden path, just with one extra setup step.
+The board you're planning to use for JTAG has `ADBUS`/`BDBUS`/`CDBUS`/
+`DDBUS` headers and 8 TX/RX activity LEDs — a plain FT2232H only has
+two channels (A/B), so this layout is much more likely an **FT4232H
+Mini Module** (4 independent channels). The smaller board is separately
+silkscreened `FT2232H`. Neither is a genuine Xilinx/Digilent cable, but
+both chips are the same family Digilent's own HS2/HS3 cables use, so
+this is a well-trodden path either way — the FT4232H distinction changes
+two specific details below, not the overall plan.
 
-- [ ] Pick one FT2232H board for **JTAG**, the other for **UART**.
+- [ ] Use the larger (FT4232H-likely) board for **JTAG**, the smaller
+      (FT2232H) board for **UART** — as planned.
+- [ ] **If it's an FT4232H**: only channels A and B support the MPSSE
+      engine that JTAG needs; C and D are UART-only on that chip. Use
+      **channel A** (the `ADBUS` header) for JTAG below — don't wire
+      JTAG to `CDBUS`/`DDBUS`, it won't work.
+- [ ] **Set the board's `VIO` pin** (in the `GND`/`PWR`/`VIO` header
+      column next to `ADBUS`) **to 3.3V**, matching the Zynq JTAG bank
+      voltage. Mini-module boards like this one set their I/O drive
+      voltage from this pin — leaving it floating or at the wrong
+      voltage means unreliable JTAG communication at best. Confirm
+      what the Zynq's JTAG-adjacent bank actually runs at (3.3V is the
+      normal case for this board's PS I/O, per the PS7 MIO config in
+      `vivado/create_project.tcl`, but verify rather than assume for
+      the specific JTAG pins).
 - [ ] Locate the JTAG header/pads on the EBAZ4205 (a small header near
       the Zynq chip, separate from DATA1/2/3 — possibly unpopulated
       stamp holes needing a header soldered on). Send a close-up photo
       of the area around the Zynq if it's not obvious.
-- [ ] Wire the JTAG board's channel A pins to the EBAZ4205's JTAG header
-      using the FT2232H's **fixed** MPSSE mapping (a hardware property
-      of the chip, not configurable):
+- [ ] Wire the JTAG board's channel A (`ADBUS`) pins to the EBAZ4205's
+      JTAG header using the FTDI chip's **fixed** MPSSE mapping (a
+      hardware property of the chip, not configurable, and the same on
+      FT2232H or FT4232H):
 
-      | FT2232H pin | JTAG signal |
+      | FTDI pin | JTAG signal |
       |---|---|
       | ADBUS0 | TCK |
       | ADBUS1 | TDI |
@@ -57,10 +77,10 @@ this is a well-trodden path, just with one extra setup step.
       need `TRST`.
 - [ ] Choose a programming path for the JTAG adapter (pick one):
   - [ ] **Path A (recommended, simpler)**: install `openFPGALoader`.
-        No EEPROM reprogramming needed — it supports generic FT2232H
-        boards for Xilinx 7-series JTAG directly.
-  - [ ] **Path B**: use FTDI's `FT_PROG` to reflash the FT2232H's EEPROM
-        to a Digilent-compatible VID/PID, then install Digilent's Adept
+        No EEPROM reprogramming needed — it supports generic FT2232H/
+        FT4232H boards for Xilinx 7-series JTAG directly.
+  - [ ] **Path B**: use FTDI's `FT_PROG` to reflash the chip's EEPROM to
+        a Digilent-compatible VID/PID, then install Digilent's Adept
         runtime so Vivado's own Hardware Manager recognizes it natively.
 - [ ] Wire the UART board to the EBAZ4205's `J7` header (silkscreened
       `VCC RXD TXD GND`, confirmed from your board photo): adapter
@@ -68,6 +88,12 @@ this is a well-trodden path, just with one extra setup step.
       usual). Leave the adapter's own `VCC`/`3V` pin disconnected —
       these boards are USB-powered and only need the three data/ground
       lines.
+- [ ] *(Optional simplification, not required)*: since the JTAG board
+      likely has two spare UART-only channels (C/D) if it's really an
+      FT4232H, it could serve as **both** the JTAG and UART adapter on
+      its own via a second USB connection — one board doing double duty
+      instead of two. Not necessary if the two-board plan is already
+      working; mentioned in case it's more convenient.
 - [ ] Install a serial terminal (minicom, PuTTY, or `screen`) — don't
       need to connect yet, just confirm it opens a port at 115200 8N1.
 
