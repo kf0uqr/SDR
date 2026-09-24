@@ -331,20 +331,25 @@ All three are **single-ended SMA** — this is what confirms the balun
 requirement noted in §6 for feeding the ADF435x's differential `+LO`/
 `-LO` output into this mixer's `RF_LO` port.
 
-- **Passive vs. active — not determined from the photo**: the shielded
-  can hides whether this is a passive double-balanced mixer (which
-  works in either direction, so the same module could plausibly serve
-  both Chain B's RX downconversion and TX upconversion per
-  `docs/ARCHITECTURE.md` §4) or an active mixer IC (typically one
-  direction only, RX). Don't assume bidirectional operation without
-  confirming — check for any part markings on the shield itself (a can
-  removed briefly, or a macro shot of any visible marking, would
-  resolve this), or test it in one direction first and treat the
-  reverse direction as unverified until tried.
-- If a second mixer is needed for a separate TX path (i.e., this one
-  turns out to be RX-only), that becomes a hardware-budget item not
-  currently listed in `docs/ARCHITECTURE.md` §5 — worth flagging once
-  the passive/active question is resolved.
+- **Confirmed passive** (user has direct knowledge of the part, not
+  inferred from the photo). A passive double-balanced mixer works in
+  either direction, so this single module can serve **both** Chain B's
+  RX downconversion and TX upconversion as `docs/ARCHITECTURE.md` §4
+  already assumed — no second mixer needed for TX. `RF_IN`/`RF_IF` swap
+  roles depending on direction (RX: antenna→`RF_IN`, IF out of `RF_IF`;
+  TX: IF in on what was the `RF_IF` port, upconverted RF out of what was
+  `RF_IN`) — the silkscreen names reflect the vendor's default/RX
+  orientation, not a hard restriction.
+- Being passive, expect **conversion loss** (typically 6–8 dB, chip-
+  dependent) in both directions rather than gain — factor that into the
+  RF buffer/driver amp budget item already in `docs/ARCHITECTURE.md` §5
+  (item 5), on both the RX IF side and the TX upconverted-output side.
+- Passive mixers also want a reasonably strong, clean LO drive (commonly
+  +7 dBm class) to switch properly — worth checking the ADF4351's actual
+  output level at `+LO`/`-LO` (through whatever balun is used, §6)
+  against this mixer's LO drive requirement once its own markings/
+  datasheet are identifiable, rather than assuming it's automatically
+  sufficient.
 
 ## 8. What's still unverified — continuity-check procedure
 
