@@ -143,7 +143,7 @@ Higher segments: same DAC, PL synthesizes the target frequency directly
 
 DAC902E's higher speed (~165 MSPS vs. the ADC's 64 MSPS — confirmed
 silkscreened "DAC 165MHz" on the user's actual module, see
-`docs/WIRING.md` §6) means direct TX synthesis can comfortably cover all
+`docs/WIRING.md` §5) means direct TX synthesis can comfortably cover all
 of HF and reach further into low VHF than originally assumed, without
 any mixer — likely the best bang-for-buck TX path to bring up first.
 
@@ -185,7 +185,10 @@ Given a small additional budget, in priority order:
 1. **TCXO/OCXO reference** for the ADF4351 (and ideally a shared
    reference distributed to the AD9850/clocking too). This sets the
    whole superheterodyne chain's frequency accuracy and reciprocal-mixing
-   noise floor — the single highest-leverage purchase.
+   noise floor — the single highest-leverage purchase. The user's actual
+   ADF435x eval board has a dedicated `MCLK` input separate from its
+   onboard 25 MHz crystal, which looks like the intended injection point
+   for this upgrade — see `docs/WIRING.md` §6.
 2. **RF switches/relays** (2–4×, e.g. small SPDT RF relays or a PIN-diode
    switch board) for band-select filter switching on both chains.
 3. **Band-pass filter set** — a handful of catalog BPFs (VHF low band,
@@ -199,7 +202,7 @@ Given a small additional budget, in priority order:
    already on hand don't cover these specific spots.
 5a. **Clock buffer/driver for the DAC902E's CLK input** — that module
     takes its sample clock via SMA/coax, not a header pin (confirmed
-    from the user's module, `docs/WIRING.md` §6), so the PL's DUC clock
+    from the user's module, `docs/WIRING.md` §5), so the PL's DUC clock
     needs a proper 50 Ω-capable driver between the FPGA and each DAC's
     CLK jack, not a bare GPIO wire. A small clock-distribution buffer IC
     or RF buffer amp covers this for both DAC902E modules.
@@ -229,7 +232,7 @@ Given a small additional budget, in priority order:
 - Clock generation: MMCM-derived ADC/DAC sample clocks (64 MSPS class
   for the ADCs, matching the proven design; up to ~165 MSPS for the
   DACs). Note the DAC902E modules take their sample clock via a
-  dedicated SMA jack, not a header pin — see `docs/WIRING.md` §6 for
+  dedicated SMA jack, not a header pin — see `docs/WIRING.md` §5 for
   what that means for driving it from the PL.
 
 ### PS (Cortex-A9, Linux)
@@ -293,7 +296,7 @@ the streaming protocol above:
    on a board silkscreened "DAC 165MHz". So: 12-bit resolution, ~165
    MSPS clock — narrower per-sample resolution than briefly assumed, but
    still faster/wider-Nyquist than the original 125 MSPS AD9762-class
-   assumption. See `docs/WIRING.md` §6 for the full confirmed pinout.
+   assumption. See `docs/WIRING.md` §5 for the full confirmed pinout.
 7. **Two ADCs / two DACs running independently** means double the PL
    resource usage (capture, DDC/DUC, clocking) versus a single-channel
    design — worth checking early that the XC7Z010's fabric/BRAM budget

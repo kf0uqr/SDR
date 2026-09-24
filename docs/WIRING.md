@@ -30,7 +30,7 @@ i.e. there's a 12 V rail routed near each header, not just signal pins
 inside the 20-pin block. This means the AD9226 modules may be powerable
 from that rail instead of a fully separate bench supply, **if** the
 module's onboard regulator accepts 12 V input — check the module's own
-input rating before relying on this (see §5's checklist).
+input rating before relying on this (see §7's checklist).
 
 Also visible and confirmed on this board: a microSD slot (supports the
 SD-boot path assumed in `docs/BRINGUP.md`), a Winbond NAND flash chip
@@ -45,7 +45,7 @@ file seen so far — **pins 1–4, 10, and 12 are presumably power/ground
 rails** (common on this style of header) but that is inferred, not
 confirmed from a schematic. The `GND`/`12V IN` silkscreen text confirms
 *some* pins nearby carry power, but not yet which specific numbered
-pins — see §5 for how to pin that down with a multimeter.
+pins — see §7 for how to pin that down with a multimeter.
 
 ## 2. DATA3 header → AD9226 (Chain A, ADC #1)
 
@@ -184,7 +184,7 @@ rather than needing re-derivation.
   schematic (silkscreen part references may differ) rather than blindly
   matching by position.
 
-## 6. DAC902E module (Chain A/B TX)
+## 5. DAC902E module (Chain A/B TX)
 
 **Correction from closer photos**: the DAC chip itself (`U2`) is now
 legible — marked **`DAC902E 9AARHEK`** directly on the package. So
@@ -253,9 +253,66 @@ Board layout, all silkscreened directly on the module:
     there for probing with a scope/logic analyzer while the SMA jack is
     the intended signal-injection point (it has a proper 50 Ω
     connector; the header pin doesn't). Use the SMA path as the primary
-    clock input per §6's original guidance above; treat the header
+    clock input per §5's original guidance above; treat the header
     `CLK` pin as a monitor point, not a second required connection,
     unless testing shows otherwise.
+
+## 6. ADF435x eval board (Chain B LO)
+
+From a photo of the user's actual board: silkscreened **"ADF435X EVAL
+BD"** (a generic Chinese eval board, maker mark "NWDZ"), chip `U1`
+marked `ADF...` (exact suffix — 4350 vs. 4351 — not fully legible; the
+architecture doc's 34.4 MHz–4.4 GHz range assumes ADF4351, confirm
+against the full chip marking if it matters later).
+
+- **Control interface — confirmed 3.3V logic**: a header silkscreened
+  (two rows) `LD / CLK / LE / CE / GND` and `PDR / MUX / DAT / GND /
+  3V3`:
+
+  | Pin | Function |
+  |---|---|
+  | `LE` | Latch Enable (SPI-style chip select for the register-load interface) |
+  | `CLK` | Serial clock |
+  | `DAT` | Serial data in (MOSI) |
+  | `LD` | Lock Detect (output — high once the PLL is locked) |
+  | `CE` | Chip Enable (power control — must be held high for normal operation) |
+  | `MUX` | Muxout (status/readback output, function set by register config) |
+  | `PDR` | Unclear — possibly a power-down control distinct from `CE`; not a standard ADF435x pin name, flag for the seller's own documentation or continued testing rather than guessing |
+  | `3V3` | Digital I/O reference — **confirms the control interface runs at 3.3V logic**, directly compatible with the Zynq's 3.3V PS/PL I/O banks with no level-shifting needed |
+  | `GND` | Ground (appears on both rows) |
+
+  This is good news: the SPI-style control (`LE`/`CLK`/`DAT`) can be
+  driven straight from PL GPIO/SPI-like bit-banging at 3.3V, same as
+  planned for the AD9850 in §3.
+
+- **Reference clock — two paths, and this is where the TCXO/OCXO
+  upgrade from `docs/ARCHITECTURE.md` §5 (budget item #1) actually
+  connects**: the board has its own onboard 25.000 MHz crystal (`X1`)
+  feeding the ADF435x's `REFIN`, **and** a separate 2-pin `MCLK` input
+  connector. If that `MCLK` input lets an external reference override
+  the onboard crystal (typical for eval boards like this), that's the
+  injection point for a better external TCXO/OCXO reference later —
+  confirm by checking whether a signal on `MCLK` actually overrides
+  `X1`, or whether both feed in some combined way, before assuming
+  either behavior.
+
+- **LO output — needs attention before connecting to a mixer**: the
+  `+LO`/`-LO` outputs are **differential** (a pair, not a single-ended
+  signal), consistent with the ADF4351's differential RFOUT structure.
+  More importantly, the connectors themselves look like small pin/
+  banana-style test-point connectors rather than proper impedance-
+  matched RF connectors (no SMA visible on this board, unlike the
+  AD9226/DAC902E modules). Before wiring this into the RF chain:
+  - Confirm what these connectors actually are (a macro shot of just
+    one, including any part markings, would help) — if they're just
+    test-point pins, expect to solder coax leads directly rather than
+    finding a mating cable.
+  - Since the mixer in the architecture is assumed single-ended, you'll
+    need either a balun/transformer to convert this differential output
+    to single-ended 50 Ω, or a mixer with a differential LO port —
+    check what your actual RF mixer(s) expect before deciding.
+- **Power**: a separate `DC5V` barrel jack — same external-supply
+  pattern as the AD9226 and DAC902E modules, not header-powered.
 
 ## 7. What's still unverified — continuity-check procedure
 
