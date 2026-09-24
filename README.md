@@ -25,6 +25,21 @@ between the EBAZ4205 and the AD9226/AD9850-class DDS modules, sourced
 from the reference projects' actual constraint files and hardware
 photos.
 
+See [`docs/BRINGUP.md`](docs/BRINGUP.md) for how to build and test the
+current HDL scaffold, phase by phase.
+
+## Repository layout
+
+- `hdl/rtl/` — plain Verilog sources (heartbeat LED bring-up test, the
+  AD9226 sample-capture module, the top-level tying them to the PS7
+  block design).
+- `hdl/constraints/` — Vivado XDC pin constraints (see `docs/WIRING.md`
+  for sourcing).
+- `vivado/create_project.tcl` — recreates the Vivado project and its PS7
+  + clocking-wizard block design from scratch; no binary project files
+  are committed.
+- `docs/` — architecture, wiring, and bring-up documentation.
+
 ## Prior art
 
 This design builds directly on two existing EBAZ4205 receiver projects,
@@ -38,6 +53,8 @@ VHF/UHF/microwave:
 
 ## Status
 
-Design phase. No gateware/firmware has been written yet — this repository
-currently holds the architecture document that the HDL, drivers, and
-host-side DSP will be built against.
+Phase 1/2 HDL scaffold written (heartbeat LED bring-up + AD9226 #1
+capture, see `docs/BRINGUP.md`) but **not yet built or tested** — no
+Vivado toolchain was available in the environment that wrote it. Next
+step is opening `vivado/create_project.tcl` in real Vivado and iterating
+from there.
