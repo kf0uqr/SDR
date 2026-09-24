@@ -132,17 +132,19 @@ Higher segments (optional, same ADC, no extra parts):
 ### TX (new — the reference projects were RX-only)
 
 ```
-0–32 MHz direct: PL NCO/DUC → DAC902E #1 @ 125 MSPS → reconstruction
+0–32 MHz direct: PL NCO/DUC → DAC902E #1 @ ~160-165 MSPS → reconstruction
                  LPF (~32 MHz) → driver amp → PA → antenna
 
 Higher segments: same DAC, PL synthesizes the target frequency directly
                  if within DAC902E's clean Nyquist band (roughly to
-                 40-50 MHz for good SFDR on a 125 MSPS part) → BPF →
+                 50-60 MHz for good SFDR on a ~165 MSPS part) → BPF →
                  PA → antenna
 ```
 
-DAC902E's higher speed (125 MSPS vs. the ADC's 64 MSPS) means direct TX
-synthesis can comfortably cover all of HF and reach into low VHF without
+DAC902E's higher speed (~165 MSPS vs. the ADC's 64 MSPS — confirmed
+silkscreened "DAC 165MHz" on the user's actual module, see
+`docs/WIRING.md` §6) means direct TX synthesis can comfortably cover all
+of HF and reach further into low VHF than originally assumed, without
 any mixer — likely the best bang-for-buck TX path to bring up first.
 
 ## 4. Chain B — superheterodyne (approx. 30 MHz – multiple GHz)
@@ -195,6 +197,12 @@ Given a small additional budget, in priority order:
 5. **RF buffer/driver amps** for the ADC input and DAC output (impedance
    matching, gain to overcome mixer conversion loss) if the "other amps"
    already on hand don't cover these specific spots.
+5a. **Clock buffer/driver for the DAC902E's CLK input** — that module
+    takes its sample clock via SMA/coax, not a header pin (confirmed
+    from the user's module, `docs/WIRING.md` §6), so the PL's DUC clock
+    needs a proper 50 Ω-capable driver between the FPGA and each DAC's
+    CLK jack, not a bare GPIO wire. A small clock-distribution buffer IC
+    or RF buffer amp covers this for both DAC902E modules.
 6. **Attenuator pads / step attenuator** for RX front-end gain control —
    12-bit ADCs have limited dynamic range (§7.4), so protecting against
    overload matters more here than in a 14/16-bit design.
@@ -219,7 +227,10 @@ Given a small additional budget, in priority order:
 - Control: SPI master for ADF4351 and AD9850, GPIO for RF-switch/filter-
   bank selection and TX/RX (PTT) sequencing.
 - Clock generation: MMCM-derived ADC/DAC sample clocks (64 MSPS class
-  for the ADCs, matching the proven design; up to 125 MSPS for the DACs).
+  for the ADCs, matching the proven design; up to ~165 MSPS for the
+  DACs). Note the DAC902E modules take their sample clock via a
+  dedicated SMA jack, not a header pin — see `docs/WIRING.md` §6 for
+  what that means for driving it from the PL.
 
 ### PS (Cortex-A9, Linux)
 - Reuse/extend wallufo's approach: PetaLinux + a streaming server
@@ -276,9 +287,12 @@ the streaming protocol above:
 5. **Half-duplex on Chain B** — one LO/mixer shared between RX and TX
    means half-duplex by default; full duplex needs a second synthesizer
    (§5, stretch item) or careful LO/filter duplication.
-6. **DAC902E part identification** — commonly an AD9762-based breakout;
-   confirm the exact DAC on your specific boards, since output swing,
-   clocking, and Nyquist limit depend on it.
+6. **DAC902E part identification** — the user's actual module is
+   silkscreened "DAC 165MHz", not the AD9762-class (125 MSPS) part
+   originally assumed here; it's more likely AD9767-class (14-bit,
+   ~160-165 MSPS), which is better for this design (more headroom, wider
+   clean Nyquist band) but the exact chip marking is still unconfirmed —
+   see `docs/WIRING.md` §6.
 7. **Two ADCs / two DACs running independently** means double the PL
    resource usage (capture, DDC/DUC, clocking) versus a single-channel
    design — worth checking early that the XC7Z010's fabric/BRAM budget

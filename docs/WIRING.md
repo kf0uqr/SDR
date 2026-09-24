@@ -184,7 +184,50 @@ rather than needing re-derivation.
   schematic (silkscreen part references may differ) rather than blindly
   matching by position.
 
-## 5. What's still unverified — continuity-check procedure
+## 6. DAC902E module (Chain A/B TX)
+
+From a photo of the user's actual module: silkscreened **"DAC 165MHz"**
+— this is a faster/wider part than the AD9762-class (125 MSPS) DAC
+originally assumed in `docs/ARCHITECTURE.md`; it's more likely
+AD9767-class (14-bit, ~160-165 MSPS). The exact chip marking on `U2`
+wasn't legible in the photo — worth a macro shot of that chip if the
+precise part number matters later (e.g. for SFDR/output-swing specs),
+but for architecture purposes "~165 MSPS, wider clean Nyquist band than
+we assumed" is the actionable takeaway, and it's good news (more TX
+headroom, not less).
+
+Board layout, all silkscreened directly on the module:
+
+- **`J1` (`CLK`)**: a dedicated SMA jack for the DAC's sample clock.
+  **This is different from the AD9226 modules**, which take their
+  sample clock over the header — the DAC902E instead expects the clock
+  delivered as a proper RF/coax signal. This means the PL's DUC sample
+  clock needs to leave the FPGA through a clock buffer/driver capable of
+  driving 50 Ω coax (not a bare GPIO pin wired straight to a header, the
+  way `ADC_clk_64M` works for the AD9226) — budget for a small clock
+  distribution buffer IC (or at minimum an RF buffer amp) between the
+  FPGA's MMCM output and this SMA input. This wasn't accounted for in
+  the original hardware-budget list (`docs/ARCHITECTURE.md` §5) — add
+  it.
+- **`P3` (`V+` / `GND`)**: a 2-pin screw terminal for module power.
+  Unlike the AD9226 module, the voltage isn't printed here (just `V+`,
+  no number) — check the module's regulator/LDO markings or measure its
+  input range before connecting a supply; don't assume 5V by analogy
+  with the AD9226 module.
+- **`J2` (`OUT`)**: SMA RF output, after an on-board reconstruction
+  filter/transformer network (visible inductors/caps around `L1`-`L5`,
+  `U1`) — ready to feed a mixer, filter, or PA input directly via coax,
+  no extra output conditioning needed to get started.
+- **Data bus connector**: a black IDC-style box header (not a bare pin
+  header like the AD9226's), with pins numbered up to at least 13/14
+  visible in the photo, plus a separate `GND` test point. The exact
+  bit-to-pin mapping isn't readable at this resolution — needed before
+  writing DAC902E constraints in `hdl/constraints/ebaz4205.xdc`. A
+  close-up of the header itself (labels are often printed on the PCB
+  right next to each pin) or the module's datasheet/seller listing would
+  resolve this.
+
+## 7. What's still unverified — continuity-check procedure
 
 Do these with a multimeter in continuity/diode-test mode, board
 **unpowered**, before wiring anything permanently. Report back what you
