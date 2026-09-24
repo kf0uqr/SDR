@@ -30,7 +30,7 @@ i.e. there's a 12 V rail routed near each header, not just signal pins
 inside the 20-pin block. This means the AD9226 modules may be powerable
 from that rail instead of a fully separate bench supply, **if** the
 module's onboard regulator accepts 12 V input — check the module's own
-input rating before relying on this (see §7's checklist).
+input rating before relying on this (see §8's checklist).
 
 Also visible and confirmed on this board: a microSD slot (supports the
 SD-boot path assumed in `docs/BRINGUP.md`), a Winbond NAND flash chip
@@ -45,7 +45,7 @@ file seen so far — **pins 1–4, 10, and 12 are presumably power/ground
 rails** (common on this style of header) but that is inferred, not
 confirmed from a schematic. The `GND`/`12V IN` silkscreen text confirms
 *some* pins nearby carry power, but not yet which specific numbered
-pins — see §7 for how to pin that down with a multimeter.
+pins — see §8 for how to pin that down with a multimeter.
 
 ## 2. DATA3 header → AD9226 (Chain A, ADC #1)
 
@@ -302,17 +302,51 @@ against the full chip marking if it matters later).
   connector-type concern (an earlier revision of this doc misjudged
   these as test-point pins from a worse angle; disregard that).
   - The one real remaining item: `+LO`/`-LO` are still a **differential**
-    pair (consistent with the ADF4351's RFOUT structure), so feeding a
-    single-ended mixer needs either a balun/transformer to combine them
-    to single-ended 50 Ω, or a mixer with a differential LO port — check
-    what your actual RF mixer(s) expect before deciding. Using only
-    `+LO` alone and leaving `-LO` unterminated will work after a fashion
-    but wastes half the output power and degrades harmonic performance;
-    not recommended as a permanent solution.
+    pair (consistent with the ADF4351's RFOUT structure). **Confirmed
+    from the user's actual mixer module (§7): its `RF_LO` port is
+    single-ended**, so a balun/transformer to combine `+LO`/`-LO` into
+    single-ended 50 Ω is genuinely needed here, not just a "check your
+    mixer" hedge — there's no differential-LO escape hatch with this
+    specific mixer. Using only `+LO` alone and leaving `-LO`
+    unterminated will work after a fashion but wastes half the output
+    power and degrades harmonic performance; not recommended as a
+    permanent solution. Add a balun to the hardware-budget list
+    (`docs/ARCHITECTURE.md` §5) if one isn't already on hand.
 - **Power**: a separate `DC5V` barrel jack — same external-supply
   pattern as the AD9226 and DAC902E modules, not header-powered.
 
-## 7. What's still unverified — continuity-check procedure
+## 7. RF mixer module (Chain B)
+
+From a photo of the user's actual mixer: a small shielded module (metal
+can over the mixer die/PCB) with three single-ended SMA ports,
+silkscreened directly on the board:
+
+| Port | Function |
+|---|---|
+| `RF_IN` | RF input (bottom) |
+| `RF_LO` | LO input (right) |
+| `RF_IF` | IF output (left) |
+
+All three are **single-ended SMA** — this is what confirms the balun
+requirement noted in §6 for feeding the ADF435x's differential `+LO`/
+`-LO` output into this mixer's `RF_LO` port.
+
+- **Passive vs. active — not determined from the photo**: the shielded
+  can hides whether this is a passive double-balanced mixer (which
+  works in either direction, so the same module could plausibly serve
+  both Chain B's RX downconversion and TX upconversion per
+  `docs/ARCHITECTURE.md` §4) or an active mixer IC (typically one
+  direction only, RX). Don't assume bidirectional operation without
+  confirming — check for any part markings on the shield itself (a can
+  removed briefly, or a macro shot of any visible marking, would
+  resolve this), or test it in one direction first and treat the
+  reverse direction as unverified until tried.
+- If a second mixer is needed for a separate TX path (i.e., this one
+  turns out to be RX-only), that becomes a hardware-budget item not
+  currently listed in `docs/ARCHITECTURE.md` §5 — worth flagging once
+  the passive/active question is resolved.
+
+## 8. What's still unverified — continuity-check procedure
 
 Do these with a multimeter in continuity/diode-test mode, board
 **unpowered**, before wiring anything permanently. Report back what you
