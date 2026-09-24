@@ -1,227 +1,288 @@
 # SDR Transceiver — System Architecture
 
+## 0. Prior art this design builds on
+
+Two existing EBAZ4205 projects are the starting point and de-risk the core
+receive path:
+
+- [`guido57/EBAZ4205_SDR_spectrum`](https://github.com/guido57/EBAZ4205_SDR_spectrum) —
+  0–32 MHz spectrum/waterfall display, HF tuning (AM/LSB/USB), FT8
+  decode. PL drives HDMI/DMA; PetaLinux + Qt5 apps do the rest.
+- [`wallufo/EBAZ4205_SDR`](https://github.com/wallufo/EBAZ4205_SDR) — the
+  simpler of the two: **one AD9226**, clocked at **64 MHz** by the PL,
+  sampling 0–32 MHz directly (first Nyquist zone, no mixer, no LO). The
+  PS runs a TCP server streaming raw frames (16384 samples/frame) to a
+  Python host app that draws spectrum/waterfall.
+
+The key fact both projects confirm: **for HF, you don't need a mixer or
+an LO at all.** 32 MHz is comfortably under half of a 64 MSPS clock, so
+the AD9226 just direct-samples the antenna signal (after a low-pass
+anti-alias filter) and everything from 0–32 MHz shows up undistorted in
+the first Nyquist zone. That's a proven, working starting point — this
+design extends it rather than replacing it with something unproven.
+
+This supersedes the first draft of this document, which assumed an I/Q
+(quadrature) architecture built around a 90°-sampling trick. That's
+dropped in favor of the simpler, already-proven **real-sampling**
+approach below, which needs less analog hardware and less novel FPGA
+work to get right.
+
 ## 1. Goals and constraints
 
-- **Widest practical frequency coverage** for both RX and TX, using only
-  the hardware already on hand.
-- **"All modes"**: CW, SSB, AM, FM, and digital modes. This is a software
-  requirement, not a hardware one — it's satisfied by getting clean,
-  wideband **I/Q** in and out of the digital backend and doing
-  modulation/demodulation in software (PL and/or host DSP), rather than
-  building mode-specific hardware demodulators.
-- Use every listed part for a role it's actually good at, rather than
-  forcing one universal signal path.
+- **Widest practical frequency coverage** for both RX and TX.
+- **"All modes"**: CW, SSB, AM, FM, digital modes — a software property.
+  A single real-valued ADC/DAC stream still carries full phase
+  information for everything in its Nyquist band; SSB/CW demod and
+  generation is done with a digital Hilbert transform + NCO (a "phasing"
+  or "third method" SSB implementation), not by needing an analog I/Q
+  front end. This is standard practice in real-sampling SDRs.
+- **Small hardware budget available** — used below to fill the specific
+  gaps the on-hand parts can't cover on their own (mainly: a
+  low-VHF/HF gap-filler LO, a reference oscillator, filters/switches,
+  and RF buffering/amplification).
+- Use every listed part for a role it's actually good at.
 
-### Why "2× ADC" and "2× DAC" drives the whole design
+### Why real sampling instead of I/Q, given 2× ADC / 2× DAC
 
-Two ADCs and two DACs is exactly what an **I/Q (quadrature) transceiver**
-needs: one converter per channel (I and Q), on both RX and TX. Everything
-below is built around that fact. A single-ADC/single-DAC "real-sampling"
-SDR is simpler but throws away image rejection and halves usable
-instantaneous bandwidth for the same sample rate — with two converters
-per direction already in hand, I/Q is strictly better and costs nothing
-extra.
+The reference projects use a single ADC in real (not quadrature) mode
+and get a full 0–32 MHz receiver out of it. Two ADCs and two DACs are
+still very useful — just not as a mandatory I/Q pair:
 
-## 2. Why one LO chain isn't enough
+- **ADC #1 / DAC #1**: the HF direct-sampling chain (0–32 MHz and
+  beyond via bandpass undersampling, §3) — a direct extension of the
+  proven prior art, now including TX.
+- **ADC #2 / DAC #2**: an independent superheterodyne chain (§4) for
+  VHF/UHF/microwave, sharing the ADF4351/AD9850/mixer hardware.
 
-- **ADF4351**: tunes 34.4 MHz – 4.4 GHz. It **cannot** synthesize below
-  ~34 MHz, so it cannot be the LO for HF (0–30 MHz), which is where most
-  of the interesting weak-signal/ham/shortwave activity is.
-- **AD9850**: clean, agile DDS but only usable to roughly 40 MHz output
-  (Nyquist/filtering limited on a 125 MHz clock), and its output level
-  and spectral purity are far below the ADF4351's at VHF+.
+That means **two simultaneous, independent RX (and, time-shared, TX)
+chains** instead of one I/Q chain — arguably more useful for "widest
+coverage" than image rejection would have been, and it matches what's
+already been proven on this exact board.
 
-So the design uses **two front-end paths sharing the same digital
-backend and converters**, switched at RF:
+## 2. Why one LO/mixer chain isn't enough on its own
 
-```
-                         ┌─────────────────────────────┐
-   HF antenna ───────────┤   HF direct-conversion path  ├──┐
-                         │   LO = AD9850 (0–40 MHz)      │  │
-                         └─────────────────────────────┘  │
-                                                            ├──► I/Q mux ──► 2×AD9226 (RX)
-                         ┌─────────────────────────────┐  │            2×DAC902E (TX)
- VHF/UHF/µW antenna ─────┤  Superheterodyne path         ├──┘
-                         │  LO = ADF4351 (34 MHz–4.4 GHz) │
-                         │  + RF mixer(s) to fixed IF     │
-                         └─────────────────────────────┘
-```
+- **ADF4351**: tunes 34.4 MHz – 4.4 GHz. Cannot synthesize below ~34 MHz.
+- **AD9850**: clean to roughly 40 MHz, but far below ADF4351 output
+  level/purity at VHF+.
+- **Direct sampling (no mixer)**: works great from 0 MHz up to wherever
+  filtering and the ADC's analog input bandwidth allow bandpass
+  undersampling (§3) — but doesn't scale indefinitely, and provides no
+  band-selectivity beyond whatever filter is in front of it.
 
-This gives continuous-ish coverage from near-DC/HF through microwave,
-using each synthesizer only where it's actually good, and reuses the
-same pair of ADCs/DACs and the same PL DSP chain for both paths.
-
-## 3. Path A — HF direct-conversion (0–30 MHz, extendable to ~40 MHz)
-
-Zero-IF (direct conversion) quadrature architecture:
+So the design keeps **two front-end chains sharing one digital
+backend**:
 
 ```
-RX:  BPF/LPF → LNA → I/Q mixer (LO: AD9850, 0°/90° via divide-by-4
-     or polyphase network) → I/Q low-pass (anti-alias) → 2×AD9226
+                     ┌───────────────────────────────────┐
+ HF/low-VHF antenna ─┤  Chain A: direct (band-)sampling    ├─ ADC #1 (RX)
+                     │  no LO for 0–32 MHz; bandpass       │  DAC #1 (TX)
+                     │  undersampling above that            │
+                     └───────────────────────────────────┘
 
-TX:  2×DAC902E (I/Q baseband) → reconstruction LPF → I/Q mixer
-     (same AD9850 LO, TX side) → BPF → PA → antenna
+                     ┌───────────────────────────────────┐
+ VHF/UHF/µW antenna ─┤  Chain B: superheterodyne            ├─ ADC #2 (RX)
+                     │  LO = ADF4351 (34 MHz–4.4 GHz),      │  DAC #2 (TX)
+                     │  AD9850 fills the 32–34(–45) MHz gap  │
+                     │  + RF mixer(s) to a fixed IF          │
+                     └───────────────────────────────────┘
 ```
 
-- **LO quadrature generation**: AD9850's DDS core can output sine and
-  cosine simultaneously is *not* available on the standard AD9850
-  module (single output). Generate quadrature instead with a
-  **divide-by-4 flip-flop network** fed from an AD9850 output run at
-  4× the desired LO frequency (limits usable LO to ~10 MHz that way), OR
-  use a **90° polyphase RC network** at the actual LO frequency (works
-  over a narrower band but no 4× multiplication penalty). Recommendation:
-  polyphase network per sub-band (e.g. 1.8–2, 3.5–4, 7, 10, 14, 18–21,
-  24–28 MHz ham-band-style segments) — simplest and keeps AD9850 output
-  frequency equal to the actual LO.
-- **Anti-alias filtering**: AD9226 at, say, 50–65 MSPS gives tens of MHz
-  of alias-free baseband — plenty for HF I/Q at zero-IF, so a simple
-  low-pass around 30–40 MHz ahead of each ADC suffices.
-- **Direct-conversion caveats to design around**: DC offset from LO
-  leakage self-mixing, and I/Q gain/phase imbalance. Both are corrected
-  digitally (DC-notch/servo + I/Q gain-phase calibration) in the PL —
-  see §6. This is standard practice (same technique used in most
-  low-cost SDR direct-conversion receivers).
+Both chains terminate on the same Zynq PL/PS; a host (or the PS itself,
+later) can run both simultaneously — e.g. watch the HF bands while also
+monitoring a VHF/UHF channel.
 
-## 4. Path B — Superheterodyne (approx. 30 MHz – multiple GHz)
+## 3. Chain A — direct (band-pass) sampling, 0 MHz up
+
+### RX (proven baseline + extension)
 
 ```
-RX:  BPF (band-select) → LNA → RF mixer → fixed IF (e.g. 45 or 70 MHz)
-     → IF BPF (image reject, done before the mixer + after) → IF amp
-     → quadrature sampling (see below) → 2×AD9226
+0–32 MHz:   LPF (anti-alias, ~32 MHz cutoff) → LNA/attenuator →
+            AD9226 #1 @ 64 MSPS, Nyquist zone 1 → PL capture
+            (exactly the wallufo/guido57 approach)
 
-TX:  2×DAC902E (I/Q at low IF, e.g. a few MHz) → reconstruction filter
-     → I/Q-to-IF mixer or direct IF DAC output → RF mixer (up-convert
-     with ADF4351 LO) → BPF (harmonic/image reject) → PA → antenna
+Higher segments (optional, same ADC, no extra parts):
+            BPF for target segment → AD9226 #1 clocked at the same
+            64 MSPS → bandpass-sample in Nyquist zone N (e.g. zone 2 ≈
+            32–64 MHz, zone 3 ≈ 64–96 MHz, ...) → PL capture
 ```
 
-- **LO**: ADF4351, fed from a stable reference (TCXO/OCXO recommended;
-  the EBAZ4205's onboard oscillator or an external reference into the
-  ADF4351's REFIN can be used — phase noise here sets the whole
-  receiver's reciprocal-mixing performance, so this is worth a
-  higher-grade reference even though it's not in the current BOM).
-- **Image rejection**: classic superhet weak point. Since the LO is
-  high-side or low-side of a wide RF range, front-end band-pass
-  filtering (a switched filter bank keyed to the target band) is
-  required ahead of the mixer — this is what the "other filters" in the
-  BOM are for. Plan on a bank of BPFs (e.g. covering 30–54, 54–108,
-  108–174, 174–450, 450–900, 900–2000+ MHz, chosen based on which
-  filters you actually have) selected via RF switch or relay under PL
-  GPIO control.
-- **Getting I/Q from a single IF with two ADCs — Quadrature Sampling
-  Detector (QSD)**: rather than adding a second (IF) mixer stage, clock
-  the two AD9226s from clocks that are phase-shifted by 90° of the IF
-  period (i.e., clock skew = 1/(4·F_IF)). Sampling the same IF signal on
-  both ADCs but staggered by a quarter IF-cycle yields I and Q directly
-  in the digital domain — no analog I/Q mixer needed on the IF side.
-  This is the same principle used in the Perseus/SDR-IQ/SDR-14 class of
-  receivers and reuses the Zynq's clock resources (MMCM/PLL in the PL
-  can generate the two phase-shifted ADC clocks precisely). This is the
-  **recommended** approach since it needs one mixer per direction
-  instead of two, and pushes the I/Q generation into the (easily
-  recalibrated) digital domain.
-  - Alternative: analog I/Q mixer at IF using a second mixer + 90°
-    hybrid, if you'd rather keep the ADC clocks simple. More parts, more
-    analog calibration.
-- **TX up-conversion**: DAC902E pair synthesizes I/Q at a low IF
-  (a few MHz, well within its 125 MSPS Nyquist band), which single-mixer
-  up-converts using the same ADF4351 LO used for RX (half-duplex,
-  time-shared) or a second ADF4351 channel if full-duplex is later
-  desired.
+- **Bandpass (undersampling) extension**: this is the standard, no-extra-
+  silicon way to stretch a direct-sampling receiver past its baseband
+  Nyquist zone — sample a higher band in a higher Nyquist zone, as long
+  as (a) a bandpass filter ahead of the ADC rejects everything outside
+  the target zone, so aliases don't overlap, and (b) the ADC's analog
+  input bandwidth and aperture jitter are good enough at that frequency.
+  The AD9226 datasheet's analog bandwidth typically supports useful
+  undersampling up to roughly 100–150 MHz with real signal-to-noise
+  degradation as you go up — treat each extra zone as a "bonus band,"
+  not a guaranteed clean receiver, and validate each one on the bench.
+  This needs a **switched filter bank** (see §5 budget) — one BPF per
+  target segment, selected by an RF switch/relay under PL GPIO control,
+  exactly like Chain B's filter bank, so the two chains can share the
+  same filter-bank design/parts if convenient.
+- **Demod**: digital Hilbert-transform-based SSB/CW (or simple
+  envelope/FM detection) in the PL or on the host from the real ADC
+  stream — no analog I/Q needed. This is what makes "all modes" work
+  from a single real-valued channel.
 
-## 5. Frequency plan summary
+### TX (new — the reference projects were RX-only)
 
-| Band | Path | LO source | Notes |
-|---|---|---|---|
-| ~0–30(–40) MHz | A: direct conversion | AD9850 + polyphase | Ham/shortwave/broadcast HF, CW/SSB/AM/digital |
-| ~30 MHz – 4.4 GHz | B: superheterodyne | ADF4351 + mixer(s) | VHF/UHF/low microwave; limited by mixer, filter bank, and PA/LNA bandwidth in hand |
-| Above ADF4351 range | — | — | Would need an additional external LO/mixer stage; out of scope until parts are added |
+```
+0–32 MHz direct: PL NCO/DUC → DAC902E #1 @ 125 MSPS → reconstruction
+                 LPF (~32 MHz) → driver amp → PA → antenna
 
-TX power and linearity above VHF will realistically be limited by
-whatever "other amps" you have on hand — the digital/converter chain
-does not limit TX frequency the way it limits RX, since the ADF4351 LO
-range is the actual ceiling either way.
+Higher segments: same DAC, PL synthesizes the target frequency directly
+                 if within DAC902E's clean Nyquist band (roughly to
+                 40-50 MHz for good SFDR on a 125 MSPS part) → BPF →
+                 PA → antenna
+```
+
+DAC902E's higher speed (125 MSPS vs. the ADC's 64 MSPS) means direct TX
+synthesis can comfortably cover all of HF and reach into low VHF without
+any mixer — likely the best bang-for-buck TX path to bring up first.
+
+## 4. Chain B — superheterodyne (approx. 30 MHz – multiple GHz)
+
+```
+RX:  BPF (band-select, switched) → LNA → RF mixer → fixed IF
+     (e.g. 10.7, 21.4, or 45 MHz — pick based on filters you can get/have)
+     → IF BPF (image reject) → IF amp → AD9226 #2 (direct- or
+     bandpass-sampled, same technique as §3) → PL capture
+
+TX:  PL NCO/DUC → DAC902E #2 (IF, within its clean Nyquist band) →
+     reconstruction filter → RF mixer (up-convert with LO) → BPF
+     (harmonic/image reject) → PA → antenna
+```
+
+- **LO selection by band**:
+  - **~32–45 MHz RF target** (the gap neither direct sampling nor
+    ADF4351 covers cleanly): use **AD9850** as the mixer LO.
+  - **~34 MHz–4.4 GHz RF target**: use **ADF4351** as the mixer LO.
+  - A simple RF/LO switch (relay or PIN-diode switch) under PL GPIO
+    control selects which synthesizer feeds the mixer, so Chain B
+    covers the full 32 MHz–4.4 GHz span with one mixer and one IF
+    strip.
+- **Image rejection**: needs a switched RF band-select filter bank ahead
+  of the mixer (see §5 budget) — the limiting factor for how much of the
+  ADF4351's range is actually *usable* rather than just theoretically
+  reachable.
+- **IF frequency choice**: pick something you can get an off-the-shelf
+  (or easily home-built) crystal/ceramic filter for — this matters more
+  for real receiver performance than almost anything else in Chain B.
+- **TX up-conversion**: same LO/mixer, shared with RX (half-duplex by
+  default — see risks, §7).
+
+## 5. Suggested use of the hardware budget
+
+Given a small additional budget, in priority order:
+
+1. **TCXO/OCXO reference** for the ADF4351 (and ideally a shared
+   reference distributed to the AD9850/clocking too). This sets the
+   whole superheterodyne chain's frequency accuracy and reciprocal-mixing
+   noise floor — the single highest-leverage purchase.
+2. **RF switches/relays** (2–4×, e.g. small SPDT RF relays or a PIN-diode
+   switch board) for band-select filter switching on both chains.
+3. **Band-pass filter set** — a handful of catalog BPFs (VHF low band,
+   VHF high band, UHF, whatever segments match your antennas/interests)
+   plus one HF/low-pass filter if not already on hand. Cheap SAW or
+   discrete LC filter modules are widely available.
+4. **IF filter** for Chain B (crystal or ceramic filter at whatever IF
+   you settle on) — narrow enough for SSB/CW selectivity.
+5. **RF buffer/driver amps** for the ADC input and DAC output (impedance
+   matching, gain to overcome mixer conversion loss) if the "other amps"
+   already on hand don't cover these specific spots.
+6. **Attenuator pads / step attenuator** for RX front-end gain control —
+   12-bit ADCs have limited dynamic range (§7.4), so protecting against
+   overload matters more here than in a 14/16-bit design.
+7. *(Stretch)* a second ADF4351/synthesizer if full-duplex operation
+   becomes a goal later.
 
 ## 6. Digital backend (Zynq-7010 on EBAZ4205)
 
 ### PL (FPGA fabric)
-- ADC capture: 2× parallel-CMOS interfaces from AD9226 into IDDR/ISERDES
-  as needed, feeding into a shared AXI-Stream I/Q pair.
-- DDC (digital down-conversion): NCO + CIC + FIR decimation chain per RX
-  channel pair, to bring the ADC's tens-of-MHz Nyquist band down to a
-  host/DSP-manageable I/Q rate (e.g. decimate to 192–1024 kHz complex,
-  tunable).
-- DUC (digital up-conversion): mirror of the above feeding the two
-  DAC902E channels.
-- DC-offset removal and I/Q gain/phase calibration blocks for Path A.
-- Clock generation: MMCM-derived ADC sample clocks, including the
-  90°-shifted pair for Path B's QSD technique (§4).
-- Control interfaces: SPI master for ADF4351 and AD9850 register
-  writes, GPIO for band-select relays/RF switches and TX/RX (PTT)
-  switching.
+- ADC capture for both AD9226s (parallel CMOS into the PL, as in
+  wallufo's design, duplicated for the second channel).
+- DDC per RX channel: NCO (tunable within the ADC's Nyquist zone) + CIC
+  + FIR decimation, producing either a real IF stream (host does
+  Hilbert/demod) or a complex baseband stream (Hilbert done in the PL) —
+  start with the simpler real-stream path to match the proven prior art,
+  add in-PL Hilbert/complex DDC later if host CPU time becomes a
+  bottleneck.
+- DUC per TX channel: NCO + interpolation feeding each DAC902E.
+- Control: SPI master for ADF4351 and AD9850, GPIO for RF-switch/filter-
+  bank selection and TX/RX (PTT) sequencing.
+- Clock generation: MMCM-derived ADC/DAC sample clocks (64 MSPS class
+  for the ADCs, matching the proven design; up to 125 MSPS for the DACs).
 
 ### PS (Cortex-A9, Linux)
-- Linux (PetaLinux/Yocto or an existing EBAZ4205 board support package)
-  driving the PL over AXI.
-- Streams the decimated I/Q to a host (Ethernet/USB, whichever the
-  EBAZ4205 exposes) using a standard SDR I/Q transport so **any**
-  mode/protocol can be implemented in host software (GNU Radio,
-  SDR#-style app, custom demod) instead of being baked into hardware.
-  This is what makes "all modes" a software, not hardware, property of
-  the design.
-- Alternatively, for a self-contained transceiver (no host PC), run
-  mode-specific DSP (SSB/CW/FM/AM demod, digital-mode modems) directly
-  on the PS/PL, exposing only audio + control — a later-phase option
-  once the RF chain and basic I/Q streaming work.
+- Reuse/extend wallufo's approach: PetaLinux + a streaming server
+  (TCP or similar) moving raw or lightly-decimated I/Q-or-real samples
+  to a host.
+- Host-side: GNU Radio (or a custom app, following guido57's Qt5/FT8
+  precedent) does spectrum display, demod, and any digital-mode
+  decoding — keeping "all modes" a software concern.
+- Later option: self-contained operation (demod/modulate on the PS/PL,
+  audio in/out, no host PC) once the RF chains and streaming are solid.
 
 ## 7. Key risks / open design items
 
-1. **I/Q image rejection budget** — both paths depend on I/Q balance;
-   plan on a calibration routine (inject a known tone, solve for
-   gain/phase correction) rather than expecting analog perfection.
-2. **LO phase noise** — a noisy ADF4351 reference will show up directly
-   as reciprocal mixing / raised noise floor across the whole
-   superheterodyne path; budget for a better reference than a generic
-   crystal if performance matters.
-3. **Front-end filter bank** — image rejection above 30 MHz is only as
-   good as the switched BPFs available; audit what filters you actually
-   have and map them to achievable sub-bands before assuming full
-   VHF–microwave coverage.
-4. **ADC/DAC dynamic range** — 12 bits (~72 dB theoretical, less in
-   practice) is modest for a wideband HF receiver sharing a strong
-   band with a weak one; front-end attenuation/AGC and careful gain
-   distribution will matter more than in a 14/16-bit design.
-5. **Half vs. full duplex** — sharing one ADF4351 between RX and TX
-   upconversion means half-duplex by default; full duplex needs a
-   second synthesizer or careful LO distribution.
-6. **DAC902E identification** — "DAC902E" commonly refers to an
-   AD9762-based breakout module; confirm the exact DAC part on your
-   boards, since output swing, clocking, and Nyquist limit depend on it.
+1. **Bandpass-undersampling limits** — each higher Nyquist zone on the
+   AD9226 costs SNR and demands a correspondingly clean filter; treat
+   Chain A's "beyond 32 MHz" extension as experimental per-band, not a
+   given.
+2. **LO phase noise (Chain B)** — reciprocal mixing across the whole
+   superheterodyne path depends on the ADF4351's reference; this is why
+   the TCXO/OCXO is priority #1 in the budget (§5).
+3. **Front-end filter bank** — both chains' real-world selectivity and
+   image rejection are bounded by whatever switched filters actually get
+   built; this is the most "elbow grease" part of the project.
+4. **ADC/DAC dynamic range** — 12 bits is modest; front-end
+   attenuation/AGC and careful gain distribution matter more than in a
+   higher-resolution design, especially on crowded HF.
+5. **Half-duplex on Chain B** — one LO/mixer shared between RX and TX
+   means half-duplex by default; full duplex needs a second synthesizer
+   (§5, stretch item) or careful LO/filter duplication.
+6. **DAC902E part identification** — commonly an AD9762-based breakout;
+   confirm the exact DAC on your specific boards, since output swing,
+   clocking, and Nyquist limit depend on it.
+7. **Two ADCs / two DACs running independently** means double the PL
+   resource usage (capture, DDC/DUC, clocking) versus a single-channel
+   design — worth checking early that the XC7Z010's fabric/BRAM budget
+   comfortably fits two of each chain plus whatever's needed for FT8/
+   display-style host work.
 
 ## 8. Phased build & test roadmap
 
-1. **Bring-up**: EBAZ4205 boots Linux/bare-metal, PL loads a trivial
-   design, confirm AXI access to a test peripheral.
-2. **Converter interfaces**: get one AD9226 sampling a known test tone
-   into the PL and one DAC902E outputting a known tone from the PL —
-   no RF chain yet, just digital I/O validation.
-3. **Synthesizer control**: SPI-control the ADF4351 and AD9850
-   independently, verify output frequency/level on a spectrum
-   analyzer/counter.
-4. **Path A (HF direct conversion) first** — it's the simpler path
-   (one mixer stage, lower frequencies, more forgiving filters). Get
-   RX I/Q working, verify with a known HF signal, then add DC/IQ
-   calibration, then bring up TX.
-5. **Path B (superheterodyne)** — validate the QSD clocking technique
-   on the bench before committing to it, since it's the least
-   conventional piece; fall back to an analog IF I/Q mixer if the
-   clock-domain approach proves unreliable on this FPGA.
-6. **Software chain / mode support** — once I/Q streams reliably in
-   both directions, "all modes" becomes a GNU Radio flowgraph /
-   host-DSP exercise rather than further hardware work.
-7. **Integration** — band-select switching, PTT sequencing, full RF
-   path from antenna to antenna, on-air test.
+1. **Reproduce the proven baseline** — bring up wallufo's (or guido57's)
+   design as-is: one AD9226, 64 MSPS, 0–32 MHz, streaming to a host.
+   This validates the board, toolchain, and PS↔PL↔host data path before
+   any new work starts.
+2. **Add TX on the same chain** — bring up DAC902E #1 doing direct HF
+   synthesis (0–32 MHz), starting with a simple tone, then a PL-generated
+   modulated signal. Validate with a receiver/spectrum analyzer.
+3. **Second ADC/DAC pair** — duplicate the capture/DDC (and DUC) path
+   for ADC #2 / DAC #2, still with no RF front end attached yet — pure
+   digital validation that both channels run independently.
+4. **Synthesizer control** — SPI-control the ADF4351 and AD9850
+   independently; verify frequency/level on a spectrum analyzer or
+   frequency counter.
+5. **Chain B bring-up** — start with the AD9850-fed gap-filler segment
+   (lower frequency, more forgiving), then extend to the ADF4351-fed
+   range once the mixer/IF/filter chain is validated at one frequency.
+6. **Filter bank and switching** — build/add the band-select filters and
+   RF switches from the budget list (§5), wire them under PL GPIO
+   control.
+7. **Bandpass-undersampling extension on Chain A** *(optional/stretch)*
+   — attempt one higher Nyquist zone once the baseline chains work, to
+   see how far "widest coverage" can practically go with this ADC.
+8. **Mode/software layer** — SSB/CW (Hilbert-based) demod and
+   modulation, AM/FM, digital-mode decode (extending guido57's FT8 work)
+   — a GNU Radio/host-software exercise once both chains stream
+   reliably.
+9. **Integration** — PTT sequencing, band-select automation, full
+   antenna-to-antenna test on each chain, then together.
 
-Each phase should be validated independently before moving to the
-next; the two front-end paths are intentionally decoupled so Path A can
-produce a working (if narrowband-coverage) transceiver well before
-Path B's wider but harder RF chain is complete.
+Each step should be validated independently; Chain A (direct sampling)
+is intentionally brought up first since it's already proven by the
+reference projects, giving a working narrowband HF transceiver well
+before Chain B's harder superheterodyne RF chain is complete.

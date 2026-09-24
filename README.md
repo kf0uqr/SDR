@@ -20,6 +20,17 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system
 design: frequency plan, signal chain, clocking, digital backend
 partitioning, and the phased build/test roadmap.
 
+## Prior art
+
+This design builds directly on two existing EBAZ4205 receiver projects,
+which prove out the core direct-sampling RX chain (single AD9226 at
+64 MSPS, 0–32 MHz, no LO/mixer needed) that this project extends with a
+second RX/TX chain, TX capability, and a superheterodyne path for
+VHF/UHF/microwave:
+
+- https://github.com/guido57/EBAZ4205_SDR_spectrum
+- https://github.com/wallufo/EBAZ4205_SDR
+
 ## Status
 
 Design phase. No gateware/firmware has been written yet — this repository
