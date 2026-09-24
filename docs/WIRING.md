@@ -186,15 +186,16 @@ rather than needing re-derivation.
 
 ## 6. DAC902E module (Chain A/B TX)
 
-From a photo of the user's actual module: silkscreened **"DAC 165MHz"**
-— this is a faster/wider part than the AD9762-class (125 MSPS) DAC
-originally assumed in `docs/ARCHITECTURE.md`; it's more likely
-AD9767-class (14-bit, ~160-165 MSPS). The exact chip marking on `U2`
-wasn't legible in the photo — worth a macro shot of that chip if the
-precise part number matters later (e.g. for SFDR/output-swing specs),
-but for architecture purposes "~165 MSPS, wider clean Nyquist band than
-we assumed" is the actionable takeaway, and it's good news (more TX
-headroom, not less).
+**Correction from closer photos**: the DAC chip itself (`U2`) is now
+legible — marked **`DAC902E 9AARHEK`** directly on the package. So
+"DAC902E" is the actual chip part number, not just a board/module name
+as assumed earlier. The connector pinout (below) confirms it's a
+**12-bit** data bus (`B1`–`B12`), not the 14-bit AD9767-class part
+guessed in the previous revision of this doc — that guess is now
+superseded. The board's "DAC 165MHz" silkscreen still stands, so: 12-bit
+resolution, ~165 MSPS clock — narrower than a 14-bit part would have
+been, but still meaningfully faster/wider-Nyquist than the originally-
+assumed 125 MSPS AD9762-class part.
 
 Board layout, all silkscreened directly on the module:
 
@@ -218,14 +219,43 @@ Board layout, all silkscreened directly on the module:
   filter/transformer network (visible inductors/caps around `L1`-`L5`,
   `U1`) — ready to feed a mixer, filter, or PA input directly via coax,
   no extra output conditioning needed to get started.
-- **Data bus connector**: a black IDC-style box header (not a bare pin
-  header like the AD9226's), with pins numbered up to at least 13/14
-  visible in the photo, plus a separate `GND` test point. The exact
-  bit-to-pin mapping isn't readable at this resolution — needed before
-  writing DAC902E constraints in `hdl/constraints/ebaz4205.xdc`. A
-  close-up of the header itself (labels are often printed on the PCB
-  right next to each pin) or the module's datasheet/seller listing would
-  resolve this.
+- **Data bus connector — confirmed pinout**: a 14-pin (2×7) black IDC-
+  style box header, silkscreened directly on the board's back side:
+
+  | Row A | Row B |
+  |---|---|
+  | `CLK` | `B12` |
+  | `PW` | `B11` |
+  | `B1` | `B10` |
+  | `B2` | `B9` |
+  | `B3` | `B8` |
+  | `B4` | `B7` |
+  | `B5` | `B6` |
+
+  I.e. the 12-bit data bus is `B1`–`B12` across both rows, plus `CLK`
+  and `PW` on the header (in addition to the dedicated `CLK` SMA jack
+  and the `V+`/`GND` screw terminal already covered above).
+
+  - **Bit order (`B1`=LSB vs. MSB) is an assumption, not labeled as
+    such** — `B1`/`B12` follow the same low-to-high naming convention as
+    the AD9226's `D0`/`D11`, but confirm by testing once the DUC is
+    driving it: if the output frequency looks like a scrambled/aliased
+    version of what you commanded, try reversing the bit order before
+    suspecting anything else.
+  - **`PW`**: likely a power-down/sleep control input common on this
+    DAC family (not a power *supply* pin — that's the separate `V+`/
+    `GND` terminal), rather than a data or power line. Tie it to the
+    level that means "normal operation, not powered down" (commonly
+    logic low, but confirm against the DAC902E's own datasheet if you
+    can find one, or by testing) — don't leave it floating.
+  - **`CLK` on the header vs. the `J1` SMA jack**: both exist on this
+    board. They're most likely the same clock net, with the header pin
+    there for probing with a scope/logic analyzer while the SMA jack is
+    the intended signal-injection point (it has a proper 50 Ω
+    connector; the header pin doesn't). Use the SMA path as the primary
+    clock input per §6's original guidance above; treat the header
+    `CLK` pin as a monitor point, not a second required connection,
+    unless testing shows otherwise.
 
 ## 7. What's still unverified — continuity-check procedure
 

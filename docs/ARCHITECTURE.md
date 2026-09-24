@@ -287,12 +287,13 @@ the streaming protocol above:
 5. **Half-duplex on Chain B** — one LO/mixer shared between RX and TX
    means half-duplex by default; full duplex needs a second synthesizer
    (§5, stretch item) or careful LO/filter duplication.
-6. **DAC902E part identification** — the user's actual module is
-   silkscreened "DAC 165MHz", not the AD9762-class (125 MSPS) part
-   originally assumed here; it's more likely AD9767-class (14-bit,
-   ~160-165 MSPS), which is better for this design (more headroom, wider
-   clean Nyquist band) but the exact chip marking is still unconfirmed —
-   see `docs/WIRING.md` §6.
+6. **DAC902E part identification — resolved**: a close-up photo of the
+   chip itself confirms it's genuinely marked `DAC902E`, 12-bit (not the
+   14-bit AD9767-class part guessed in an earlier revision of this doc),
+   on a board silkscreened "DAC 165MHz". So: 12-bit resolution, ~165
+   MSPS clock — narrower per-sample resolution than briefly assumed, but
+   still faster/wider-Nyquist than the original 125 MSPS AD9762-class
+   assumption. See `docs/WIRING.md` §6 for the full confirmed pinout.
 7. **Two ADCs / two DACs running independently** means double the PL
    resource usage (capture, DDC/DUC, clocking) versus a single-channel
    design — worth checking early that the XC7Z010's fabric/BRAM budget
