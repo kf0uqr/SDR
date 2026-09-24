@@ -288,29 +288,27 @@ against the full chip marking if it matters later).
 - **Reference clock — two paths, and this is where the TCXO/OCXO
   upgrade from `docs/ARCHITECTURE.md` §5 (budget item #1) actually
   connects**: the board has its own onboard 25.000 MHz crystal (`X1`)
-  feeding the ADF435x's `REFIN`, **and** a separate 2-pin `MCLK` input
-  connector. If that `MCLK` input lets an external reference override
+  feeding the ADF435x's `REFIN`, **and** a separate SMA `MCLK` input
+  jack. If that `MCLK` input lets an external reference override
   the onboard crystal (typical for eval boards like this), that's the
   injection point for a better external TCXO/OCXO reference later —
   confirm by checking whether a signal on `MCLK` actually overrides
   `X1`, or whether both feed in some combined way, before assuming
   either behavior.
 
-- **LO output — needs attention before connecting to a mixer**: the
-  `+LO`/`-LO` outputs are **differential** (a pair, not a single-ended
-  signal), consistent with the ADF4351's differential RFOUT structure.
-  More importantly, the connectors themselves look like small pin/
-  banana-style test-point connectors rather than proper impedance-
-  matched RF connectors (no SMA visible on this board, unlike the
-  AD9226/DAC902E modules). Before wiring this into the RF chain:
-  - Confirm what these connectors actually are (a macro shot of just
-    one, including any part markings, would help) — if they're just
-    test-point pins, expect to solder coax leads directly rather than
-    finding a mating cable.
-  - Since the mixer in the architecture is assumed single-ended, you'll
-    need either a balun/transformer to convert this differential output
-    to single-ended 50 Ω, or a mixer with a differential LO port —
-    check what your actual RF mixer(s) expect before deciding.
+- **LO output — connectors confirmed SMA**: a clearer photo confirms
+  `+LO`, `-LO`, and `MCLK` are all proper threaded SMA jacks, same as
+  the AD9226/DAC902E modules — ordinary coax cables work directly, no
+  connector-type concern (an earlier revision of this doc misjudged
+  these as test-point pins from a worse angle; disregard that).
+  - The one real remaining item: `+LO`/`-LO` are still a **differential**
+    pair (consistent with the ADF4351's RFOUT structure), so feeding a
+    single-ended mixer needs either a balun/transformer to combine them
+    to single-ended 50 Ω, or a mixer with a differential LO port — check
+    what your actual RF mixer(s) expect before deciding. Using only
+    `+LO` alone and leaving `-LO` unterminated will work after a fashion
+    but wastes half the output power and degrades harmonic performance;
+    not recommended as a permanent solution.
 - **Power**: a separate `DC5V` barrel jack — same external-supply
   pattern as the AD9226 and DAC902E modules, not header-powered.
 
