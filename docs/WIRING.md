@@ -1,0 +1,166 @@
+# Wiring reference: EBAZ4205 ↔ AD9226 / AD9850-class DDS
+
+This is real, verified pin data pulled from the actual (uncommented) Vivado
+constraint files and hardware photos in the reference projects — not a
+guess from datasheets alone. Sources are cited per section so you can
+cross-check against your own boards.
+
+**Before wiring anything from this doc**: your AD9226/AD9850 breakout
+modules may be a different revision than the ones photographed in these
+reference projects (common on cheap, multi-seller Chinese modules).
+Verify silkscreen labels on your actual boards against the pinouts below
+before connecting power.
+
+## 1. EBAZ4205 expansion headers
+
+The board exposes (at least) three 20-pin expansion headers, labeled on
+silkscreen as **DATA1**, **DATA2**, **DATA3**. Reference projects use:
+
+| Header | Used for | Project |
+|---|---|---|
+| DATA1 | HDMI/TMDS, I2S audio, PS/2 (unrelated to this project) | guido57/EBAZ4205_SDR_spectrum |
+| DATA2 | AD9851 DDS control lines | guido57/EBAZ4205_SDR_spectrum (`AD9851_test`) |
+| DATA3 | AD9226 ADC data bus + clock | wallufo/EBAZ4205_SDR |
+
+Only pins 5–9, 11, 13–20 of each 20-pin header appear in any constraint
+file seen so far — **pins 1–4, 10, and 12 are presumably power/ground
+rails** (common on this style of header) but that is inferred, not
+confirmed from a schematic. Verify with a multimeter (continuity to a
+known 3V3/5V/GND test point) before assuming a specific pin is power.
+
+## 2. DATA3 header → AD9226 (Chain A, ADC #1)
+
+Source: `wallufo/EBAZ4205_SDR`, `Zynq/capture-test/capture-test.srcs/constrs_1/imports/new/ebaz4205.xdc`
+(the same table also appears, commented out for reference, in
+`guido57/EBAZ4205_SDR_spectrum`'s `AD9851_test` project).
+
+| FPGA package pin | I/O standard | Signal | DATA3 header pin | AD9226 side |
+|---|---|---|---|---|
+| M19 | LVCMOS33 | `ADC_in[0]` | DATA3_5 | D0 |
+| N20 | LVCMOS33 | `ADC_clk_64M` | DATA3_6 | ADC sample clock (driven BY the FPGA, not from the ADC) |
+| P18 | LVCMOS33 | `ADC_in[2]` | DATA3_7 | D2 |
+| M17 | LVCMOS33 | `ADC_in[1]` | DATA3_8 | D1 |
+| N17 | LVCMOS33 | `ADC_in[4]` | DATA3_9 | D4 |
+| P20 | LVCMOS33 | `ADC_in[3]` | DATA3_11 | D3 |
+| R18 | LVCMOS33 | `ADC_in[6]` | DATA3_13 | D6 |
+| R19 | LVCMOS33 | `ADC_in[5]` | DATA3_14 | D5 |
+| P19 | LVCMOS33 | `ADC_in[8]` | DATA3_15 | D8 |
+| T20 | LVCMOS33 | `ADC_in[7]` | DATA3_16 | D7 |
+| U20 | LVCMOS33 | `ADC_in[10]` | DATA3_17 | D10 |
+| T19 | LVCMOS33 | `ADC_in[9]` | DATA3_18 | D9 |
+| V20 | LVCMOS33 | `OTR` | DATA3_19 | OTR (over-range flag) |
+| U19 | LVCMOS33 | `ADC_in[11]` | DATA3_20 | D11 (MSB) |
+
+That's the full 12-bit data bus (D0–D11) + sample clock + OTR = 14
+signal wires — matching the "16 wires ADC ↔ FPGA (PL)" ribbon cable
+shown in that project's hardware photo (the extra 2 conductors are most
+likely a ground reference and possibly one spare/unused).
+
+**Key point**: the FPGA *drives* the 64 MHz sample clock to the AD9226
+— the ADC does not free-run — so the PL must generate this clock (an
+MMCM output, per `docs/ARCHITECTURE.md` §6) before the ADC will produce
+valid data.
+
+For **ADC #2** (Chain B's IF sampler in our design, not present in the
+single-ADC reference projects), duplicate this same bus structure on a
+second header/set of GPIO pins — DATA1 is otherwise unused by the SDR
+projects and is the natural candidate if its pins aren't needed for
+display/audio in your build, but confirm it's wired as generic GPIO on
+your specific board before committing to it.
+
+## 3. DATA2 header → AD9851/AD9850-class DDS
+
+Source: `guido57/EBAZ4205_SDR_spectrum`, `AD9851_test/AD9851_test.srcs/constrs_1/new/ebaz4205.xdc`.
+
+| FPGA package pin | I/O standard | Signal | DATA2 header pin | DDS side |
+|---|---|---|---|---|
+| G19 | LVCMOS33 | `AD9851_sd_out` | DATA2_7 | Serial data (W-CLK/serial load bit, DDS "D7"/serial-mode data pin) |
+| H20 | LVCMOS33 | `AD9851_clock_out` | DATA2_8 | W_CLK (word load clock) |
+| J19 | LVCMOS33 | `AD9851_fq_ud_out` | DATA2_9 | FQ_UD (frequency update strobe) |
+| K18 | LVCMOS33 | `AD9851_pwm_out` | DATA2_11 | Reset or a PWM-derived control line (confirm against your module's silkscreen — name suggests PWM-based control, not a standard AD9850/9851 pin, possibly driving an RC-filtered analog control voltage on that specific breakout) |
+
+This is the AD9851 (a close sibling of your AD9850 — same serial-load
+protocol, AD9851 just adds a ×6 reference multiplier and goes higher in
+frequency). **Your AD9850 module's serial interface is pin-compatible**:
+W_CLK, FQ_UD, D7 (serial data), and RESET are the standard four control
+lines. Map:
+
+| AD9850 standard pin | Use this DATA2 mapping |
+|---|---|
+| D7 (serial data) | `AD9851_sd_out` → DATA2_7 |
+| W_CLK | `AD9851_clock_out` → DATA2_8 |
+| FQ_UD | `AD9851_fq_ud_out` → DATA2_9 |
+| RESET | `AD9851_pwm_out` → DATA2_11 *(verify — see caveat above)* |
+
+Confirm the 4th line against your specific AD9850 module's silkscreen
+before wiring — if it's labeled `RESET` you're fine with the mapping
+above; if the guido57 project is instead driving something PWM-specific
+to their module, you may need only 3 of these 4 lines for a standard
+AD9850 (RESET can often be tied to a GPIO you control directly instead).
+
+## 4. AD9226 module: power and input conditioning
+
+From `wallufo/EBAZ4205_SDR`'s `docs/` folder (schematics + a build
+photo):
+
+- **The AD9226 module needs its own external DC supply** (a `GND`/`+5V`
+  screw terminal was visible on the module in the reference build) — it
+  is **not** powered from the DATA3 header. Budget a small 5V (or
+  whatever your specific module's regulator input range is) supply for
+  each of your two AD9226 modules.
+- **Output format strap**: AD9226 modules typically have a two's-
+  complement vs. offset-binary output select (often a resistor/jumper
+  near the ADC's `OEB`/format pin). The reference project's docs
+  explicitly call this out (`AD9226 two's complement settings.jpg`) —
+  check which format your HDL sampler expects and confirm your module's
+  strap matches, or you'll get bit-inverted/offset sample values that
+  still "work" but read wrong.
+- **Recommended input-conditioning modification** (from
+  `AD9226 board original schematic.png` vs.
+  `AD9226 board modified schematic.png` in that repo): the stock
+  AD8138-based differential driver on these modules is configured for
+  a lab ADC-eval use case, not a 50 Ω antenna/RF input. The reference
+  project's modification, which we'd recommend replicating:
+
+  | Component | Stock value | Modified (RF-input) value |
+  |---|---|---|
+  | R2, R14 (AD8138 feedback) | 200 Ω | 2200 Ω |
+  | R8, R13 (AD8138 gain-set) | 200 Ω | 390 Ω |
+  | R6 | 75 Ω | 56 Ω |
+  | R7 | 3000 Ω | *(removed)* |
+  | R3 | 62 Ω | *(removed, replaced by R1 = 51 Ω)* |
+  | R16 | 51 Ω | 56 Ω |
+  | — | — | + C1 = 0.1 µF DC-blocking cap in series with the RF input |
+  | — | — | + D1, D2 = 1N4148 diodes to ground for input overvoltage clamping |
+  | — | — | + C2 = 0.1 µF added at the D- bias node |
+
+  This changes the front-end gain and adds DC blocking + simple diode
+  protection appropriate for a 50 Ω antenna feed instead of a bench
+  signal generator — worth doing on both of your AD9226 modules before
+  connecting an antenna, to protect the ADC input from static/overload
+  and to get the right full-scale input level. Treat the exact resistor
+  values as a starting point to verify against your module's actual
+  schematic (silkscreen part references may differ) rather than blindly
+  matching by position.
+
+## 5. What's still unverified / needs your own board in hand
+
+- Exact function of DATA-header pins 1–4, 10, 12 (assumed power/ground,
+  not confirmed from a schematic).
+- Whether your specific AD9226 and AD9850 module revisions match the
+  pinout/component layout shown in the reference photos — cheap modules
+  from different sellers sometimes differ.
+- The exact 4th AD9850 control line mapping (§3 caveat).
+- Physical connector gender/pitch on the DATA headers (photos show a
+  ribbon/jumper cable but not the header's pitch or keying).
+
+Flag these to me once you have the boards in hand (a phone photo of the
+silkscreen/labels is usually enough) and I'll tighten this doc up before
+we commit to the HDL pin constraints.
+
+## Sources
+
+- https://github.com/wallufo/EBAZ4205_SDR (AD9226 capture, real XDC + schematics)
+- https://github.com/guido57/EBAZ4205_SDR_spectrum (AD9851 control XDC, block diagram)
+- https://github.com/guido57/EBAZ4205 (board bring-up notes)
+- https://github.com/KeitetsuWorks/EBAZ4205 (base board XDC/PetaLinux reference)

@@ -20,6 +20,11 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system
 design: frequency plan, signal chain, clocking, digital backend
 partitioning, and the phased build/test roadmap.
 
+See [`docs/WIRING.md`](docs/WIRING.md) for verified pin-level wiring
+between the EBAZ4205 and the AD9226/AD9850-class DDS modules, sourced
+from the reference projects' actual constraint files and hardware
+photos.
+
 ## Prior art
 
 This design builds directly on two existing EBAZ4205 receiver projects,

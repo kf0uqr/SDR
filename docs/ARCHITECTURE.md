@@ -27,6 +27,10 @@ dropped in favor of the simpler, already-proven **real-sampling**
 approach below, which needs less analog hardware and less novel FPGA
 work to get right.
 
+See [`docs/WIRING.md`](WIRING.md) for the actual pin-level wiring
+(EBAZ4205 header pins ↔ AD9226/AD9850) pulled from these reference
+projects' real constraint files and hardware photos.
+
 ## 1. Goals and constraints
 
 - **Widest practical frequency coverage** for both RX and TX.
