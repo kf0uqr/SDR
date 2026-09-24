@@ -189,8 +189,12 @@ Given a small additional budget, in priority order:
    ADF435x eval board has a dedicated `MCLK` input separate from its
    onboard 25 MHz crystal, which looks like the intended injection point
    for this upgrade — see `docs/WIRING.md` §6.
-2. **RF switches/relays** (2–4×, e.g. small SPDT RF relays or a PIN-diode
-   switch board) for band-select filter switching on both chains.
+2. ~~RF switches/relays~~ — **already on hand**: an SP8T (`HMC253`-
+   based, 3-bit control), an SP4T (2-bit control), two SPDT modules
+   (1 bit each), and a stock of generic mechanical SPDT/DPDT relays
+   (confirmed from photos, see `docs/WIRING.md` §9). The SP8T alone is
+   enough for a real switched filter bank (up to 8 legs) on either
+   chain; the rest cover antenna changeover and smaller routing jobs.
 3. **Band-pass filter set** — a handful of catalog BPFs (VHF low band,
    VHF high band, UHF, whatever segments match your antennas/interests)
    plus one HF/low-pass filter if not already on hand. Cheap SAW or
@@ -233,10 +237,12 @@ Given a small additional budget, in priority order:
   add in-PL Hilbert/complex DDC later if host CPU time becomes a
   bottleneck.
 - DUC per TX channel: NCO + interpolation feeding each DAC902E.
-- Control: SPI master for ADF4351 and AD9850, GPIO for RF-switch/filter-
-  bank selection, TX/RX (PTT) sequencing, and 6 output bits per
-  attenuator for the digital step attenuators (`docs/WIRING.md` §8) —
-  one 6-bit AGC control word per RX chain.
+- Control: SPI master for ADF4351 and AD9850; GPIO for TX/RX (PTT)
+  sequencing, 6 output bits per attenuator for the digital step
+  attenuators (`docs/WIRING.md` §8, one 6-bit AGC word per RX chain),
+  and RF-switch control — up to 8 more bits across the SP8T (3), SP4T
+  (2), and SPDT modules (1 each) confirmed in `docs/WIRING.md` §9,
+  depending on how many of them end up used at once.
 - Clock generation: MMCM-derived ADC/DAC sample clocks (64 MSPS class
   for the ADCs, matching the proven design; up to ~165 MSPS for the
   DACs). Note the DAC902E modules take their sample clock via a

@@ -30,7 +30,7 @@ i.e. there's a 12 V rail routed near each header, not just signal pins
 inside the 20-pin block. This means the AD9226 modules may be powerable
 from that rail instead of a fully separate bench supply, **if** the
 module's onboard regulator accepts 12 V input — check the module's own
-input rating before relying on this (see §9's checklist).
+input rating before relying on this (see §10's checklist).
 
 Also visible and confirmed on this board: a microSD slot (supports the
 SD-boot path assumed in `docs/BRINGUP.md`), a Winbond NAND flash chip
@@ -45,7 +45,7 @@ file seen so far — **pins 1–4, 10, and 12 are presumably power/ground
 rails** (common on this style of header) but that is inferred, not
 confirmed from a schematic. The `GND`/`12V IN` silkscreen text confirms
 *some* pins nearby carry power, but not yet which specific numbered
-pins — see §9 for how to pin that down with a multimeter.
+pins — see §10 for how to pin that down with a multimeter.
 
 ## 2. DATA3 header → AD9226 (Chain A, ADC #1)
 
@@ -433,7 +433,46 @@ header.
   Chain B each get their own LNA) is the natural allocation, consistent
   with the two independent RX chains in `docs/ARCHITECTURE.md` §2.
 
-## 9. What's still unverified — continuity-check procedure
+## 9. RF switches (filter-bank / antenna selection)
+
+From a photo of the user's actual modules — this is real hardware
+behind the "switched filter bank" concept that `docs/ARCHITECTURE.md`
+§3/§4 already called for as the way to get band selectivity on both
+chains, plus more general routing options:
+
+| Module | Type | Ports | Control | Power |
+|---|---|---|---|---|
+| `HMC253`-based board | **SP8T** (1-of-8) | `RFC` (common) + `RF1`–`RF8` | 3-bit binary (`A`/`B`/`C`, truth table silkscreened on the board) | `+5V`/`GND` screw terminal |
+| Unlabeled 4-way board | **SP4T** (1-of-4) | `RFin` + `RFout1`–`RFout4` | 2-bit binary (`A`/`B` via `CN2`, truth table silkscreened) | `VCC`/`GND` screw terminal (`CN1`) |
+| 2× `SPDT Switch` boards | **SPDT** (1-of-2) | `RFC` + `RF1`/`RF2` | 1 bit (`EN`) each | via the same header as `EN`/`GND` |
+
+Plus a stock of generic mechanical SPDT/DPDT relays for anything these
+RF switch ICs don't cover (lower frequency, higher power handling, or
+simple always-broken-before-make antenna changeover where an electronic
+switch's insertion loss/isolation spec doesn't matter as much).
+
+- **This is enough for the switched filter bank**: the SP8T alone can
+  select among 7 filtered paths plus a wideband/bypass position (or all
+  8 as filtered segments) — matching `docs/ARCHITECTURE.md` §3's
+  bandpass-undersampling extension and §4's superheterodyne band-select
+  filtering. The SP4T and SPDTs are naturally suited to smaller jobs:
+  RX/TX antenna changeover, LNA bypass switching, or routing between
+  Chain A and Chain B's shared hardware (e.g. the mixer/LO from §7/§6).
+- **New GPIO control requirement, on top of the attenuator's 6 bits
+  (§8)**: 3 bits for the SP8T + 2 bits for the SP4T + 1 bit per SPDT (2
+  more if using both) = **up to 8 additional PL GPIO output bits**,
+  depending on how many of these get used at once. Add this to the GPIO
+  allocation in `docs/ARCHITECTURE.md` §6.
+- **Logic level**: same caveat as the attenuator (§8) — confirm these
+  switch ICs' control pins accept 3.3V logic directly from the Zynq's
+  GPIO before wiring, rather than assuming compatibility.
+- Deciding exactly which switch goes where (which bank feeds the SP8T's
+  8 filtered legs, whether the SP4T handles Chain A or Chain B, etc.) is
+  a filter-bank design decision for when the actual band-pass filters
+  (`docs/ARCHITECTURE.md` §5 budget item 3) are selected — this section
+  just establishes what switching hardware is available to route them.
+
+## 10. What's still unverified — continuity-check procedure
 
 Do these with a multimeter in continuity/diode-test mode, board
 **unpowered**, before wiring anything permanently. Report back what you
