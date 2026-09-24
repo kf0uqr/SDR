@@ -242,7 +242,12 @@ Given a small additional budget, in priority order:
   attenuators (`docs/WIRING.md` §8, one 6-bit AGC word per RX chain),
   and RF-switch control — up to 8 more bits across the SP8T (3), SP4T
   (2), and SPDT modules (1 each) confirmed in `docs/WIRING.md` §9,
-  depending on how many of them end up used at once.
+  depending on how many of them end up used at once. None of this is
+  latency-critical, so once the Pi is in the loop (§6a) some or all of
+  it can move to the Pi's own GPIO instead of the Zynq's if the EMIO
+  budget gets tight — not required for the initial bring-up, but worth
+  keeping as an option rather than treating the Zynq pin count as a
+  hard ceiling.
 - Clock generation: MMCM-derived ADC/DAC sample clocks (64 MSPS class
   for the ADCs, matching the proven design; up to ~165 MSPS for the
   DACs). Note the DAC902E modules take their sample clock via a
@@ -285,6 +290,17 @@ the streaming protocol above:
 - Once on a Pi, self-contained operation (demod/modulate entirely on the
   Pi with the Zynq as a "radio peripheral," audio in/out on the Pi, no
   separate PC ever needed) is the natural end state.
+- **The Pi is also a source of extra I/O, not just compute** — its own
+  GPIO header can take over any control signal that doesn't need
+  PL-level timing. The growing list of slow, non-real-time control bits
+  (RF-switch selection and step-attenuator words, `docs/WIRING.md` §8/§9;
+  PTT sequencing) doesn't have to live entirely on the Zynq's EMIO GPIO.
+  Splitting some of that onto the Pi (once it's in the loop) over a
+  simple command protocol — the same one already carrying sample
+  data/control per this section — eases pressure on the Zynq's GPIO
+  budget without adding new hardware. Worth keeping in mind as a release
+  valve if §6's PL GPIO count gets tight, rather than assuming every
+  control line must be a Zynq pin.
 
 ## 7. Key risks / open design items
 
