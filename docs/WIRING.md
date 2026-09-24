@@ -119,21 +119,43 @@ AD9850 (RESET can often be tied to a GPIO you control directly instead).
 
 ## 4. AD9226 module: power and input conditioning
 
-From `wallufo/EBAZ4205_SDR`'s `docs/` folder (schematics + a build
-photo):
+**Confirmed from a photo of the user's actual module**: it's essentially
+the same board as the one in `wallufo/EBAZ4205_SDR`'s reference photos —
+identical silkscreen (`AD9226 12-BIT 65MSPS`) and matching component
+references (R1–R35, C1–C43, U1/OEB/3V3 test point layout), so the
+modification table below should apply close to component-for-component
+rather than needing re-derivation.
 
-- **The AD9226 module needs its own external DC supply** (a `GND`/`+5V`
-  screw terminal was visible on the module in the reference build) — it
-  is **not** powered from the DATA3 header. Budget a small 5V (or
-  whatever your specific module's regulator input range is) supply for
-  each of your two AD9226 modules.
+- **Power**: this specific module is silkscreened `GND+5V` at both its
+  green screw terminal (P1) and on two pins of its own signal header
+  (P2) — it wants a regulated **5V** supply, not the EBAZ4205 DATA
+  header's 12V rail noted in §1. Feed it 5V into the P1 terminal block;
+  don't wire the header's `GND+5V` pins to the board's `12V IN` — that's
+  a voltage mismatch, not just an alternate supply point.
+- **Header pinout confirmed**: the module's own P2 header is silkscreened
+  `GND, OTR, D0–D11, CLK, GND+5V` — matching the DATA3 pin table in §2's
+  signal set, one row carrying the even data bits + OTR and the other
+  the odd bits + CLK, consistent with how `wallufo`'s ribbon cable maps
+  to `DATA3_5`–`DATA3_20`.
+- **RF input**: already a proper SMA connector on the module — no extra
+  connector work needed before this feeds from a filter/antenna.
+- **OEB must be tied low**: AD9226's `OEB` (output-enable, active low)
+  pin needs to be grounded (or pulled low) for the ADC to actually drive
+  its output bus — if bring-up wiring looks correct but
+  `adc1_valid_sync`/`adc1_data_sync` never show sensible values in the
+  ILA (`docs/BRINGUP.md` Phase 2), check continuity from the module's
+  `OEB` pad to ground before suspecting the FPGA side.
 - **Output format strap**: AD9226 modules typically have a two's-
   complement vs. offset-binary output select (often a resistor/jumper
-  near the ADC's `OEB`/format pin). The reference project's docs
-  explicitly call this out (`AD9226 two's complement settings.jpg`) —
-  check which format your HDL sampler expects and confirm your module's
-  strap matches, or you'll get bit-inverted/offset sample values that
-  still "work" but read wrong.
+  near the ADC's `OEB`/format pin) — on this module that's the
+  **R32–R35 cluster** bottom-left near U1, the same location the
+  reference project's own docs flagged
+  (`AD9226 two's complement settings.jpg`). Populated/unpopulated status
+  isn't readable at normal photo resolution — a tight macro shot of just
+  that resistor cluster would let this be confirmed exactly; until then,
+  check which format your HDL sampler expects and treat a wrong guess as
+  low-risk (bit-inverted/offset values that still "work" but read wrong,
+  not a hardware fault).
 - **Recommended input-conditioning modification** (from
   `AD9226 board original schematic.png` vs.
   `AD9226 board modified schematic.png` in that repo): the stock

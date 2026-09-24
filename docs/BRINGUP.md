@@ -71,6 +71,12 @@ yet).
    should pulse steadily, and `adc1_otr_sync` should stay low unless
    you're intentionally overdriving the input.
 
+**If `adc1_data_sync` is stuck (flat, all-0s, or all-1s) despite correct
+wiring and a good input signal**: check the module's `OEB` pin is tied
+low (`docs/WIRING.md` §4) before suspecting the FPGA/HDL side — AD9226
+tri-states its outputs whenever `OEB` isn't held low, which looks
+identical to a wiring or clocking fault from the digital side.
+
 ## What comes after this
 
 Once Phase 2's ILA capture looks right, the next roadmap steps
