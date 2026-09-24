@@ -22,11 +22,30 @@ silkscreen as **DATA1**, **DATA2**, **DATA3**. Reference projects use:
 | DATA2 | AD9851 DDS control lines | guido57/EBAZ4205_SDR_spectrum (`AD9851_test`) |
 | DATA3 | AD9226 ADC data bus + clock | wallufo/EBAZ4205_SDR |
 
+**Confirmed from a photo of the user's actual board** (2026-09,
+silkscreen text `EBAZ4205`, Zynq `XC7Z010CLG400ABX1733`): all three
+headers are present in that order along the right edge of the board,
+and each has `GND` / `12V IN` silkscreened immediately next to it —
+i.e. there's a 12 V rail routed near each header, not just signal pins
+inside the 20-pin block. This means the AD9226 modules may be powerable
+from that rail instead of a fully separate bench supply, **if** the
+module's onboard regulator accepts 12 V input — check the module's own
+input rating before relying on this (see §5's checklist).
+
+Also visible and confirmed on this board: a microSD slot (supports the
+SD-boot path assumed in `docs/BRINGUP.md`), a Winbond NAND flash chip
+(the board's other/default boot option, per the base PS7 MIO
+configuration in `vivado/create_project.tcl` — irrelevant if you stick
+with SD boot), `J7` silkscreened `VCC RXD TXD GND` (the UART console
+connector, in that pin order), and `J5` silkscreened `GND VCC SPEED PWM`
+(a fan connector, unrelated to the RF wiring).
+
 Only pins 5–9, 11, 13–20 of each 20-pin header appear in any constraint
 file seen so far — **pins 1–4, 10, and 12 are presumably power/ground
 rails** (common on this style of header) but that is inferred, not
-confirmed from a schematic. Verify with a multimeter (continuity to a
-known 3V3/5V/GND test point) before assuming a specific pin is power.
+confirmed from a schematic. The `GND`/`12V IN` silkscreen text confirms
+*some* pins nearby carry power, but not yet which specific numbered
+pins — see §5 for how to pin that down with a multimeter.
 
 ## 2. DATA3 header → AD9226 (Chain A, ADC #1)
 
@@ -143,20 +162,50 @@ photo):
   schematic (silkscreen part references may differ) rather than blindly
   matching by position.
 
-## 5. What's still unverified / needs your own board in hand
+## 5. What's still unverified — continuity-check procedure
 
-- Exact function of DATA-header pins 1–4, 10, 12 (assumed power/ground,
-  not confirmed from a schematic).
+Do these with a multimeter in continuity/diode-test mode, board
+**unpowered**, before wiring anything permanently. Report back what you
+find and I'll fold it into this doc and the XDC.
+
+1. **Find pin 1 on each header.** Look for a square pad (vs. round pads
+   for the rest), a silkscreen dot/arrow, or a "1" printed near one end
+   of the DATA1/2/3 headers. This tells us which physical end
+   `DATA3_5` etc. actually starts from — the tables in §2/§3 give pin
+   *numbers*, not a physical left/right position, and Vivado only cares
+   about the FPGA package pin (already correct), but *you* need this to
+   avoid plugging a cable in backwards.
+2. **Identify the power pins.** With one probe on a known ground point
+   (e.g. the Ethernet jack's metal shield, or the DC barrel jack's
+   outer sleeve) and the other probing each of DATA3 pins 1–4, 10, 12
+   in turn: note which read as continuous with ground (0 Ω-ish) — those
+   are GND pins. Then, with the board powered and a multimeter in DC
+   voltage mode (careful — board now live), check the remaining
+   candidates (1–4, 10, 12 minus whichever tested as GND) for ~12 V,
+   ~5V, or ~3.3V relative to ground. Repeat for DATA1 and DATA2 if you
+   plan to use them too.
+3. **Check the AD9226 module's supply input rating** (its own
+   silkscreen near the power terminal, or its regulator IC's datasheet)
+   against whatever voltage you found in step 2 — only wire it to the
+   header's power pin if the module accepts that voltage directly;
+   otherwise keep using a separate bench supply as §4 originally assumed.
+4. **Confirm the AD9226 output format strap** (§4) — look for a
+   populated 0 Ω resistor or jumper near the ADC labeled something like
+   a format/OEB select, and compare its position to
+   `AD9226 two's complement settings.jpg` from the reference repo if you
+   can get eyes on that file.
+5. **Confirm your AD9850 module's 4th control line** (§3) — check its
+   silkscreen for a pin labeled `RESET` near the D7/W_CLK/FQ_UD trio.
+
+Also still open, lower priority:
+
 - Whether your specific AD9226 and AD9850 module revisions match the
   pinout/component layout shown in the reference photos — cheap modules
   from different sellers sometimes differ.
-- The exact 4th AD9850 control line mapping (§3 caveat).
 - Physical connector gender/pitch on the DATA headers (photos show a
-  ribbon/jumper cable but not the header's pitch or keying).
-
-Flag these to me once you have the boards in hand (a phone photo of the
-silkscreen/labels is usually enough) and I'll tighten this doc up before
-we commit to the HDL pin constraints.
+  ribbon/jumper cable but not the header's pitch or keying) — bring a
+  spare header/cable when you go to wire this up, or measure pin pitch
+  with calipers.
 
 ## Sources
 
