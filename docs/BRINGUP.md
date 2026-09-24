@@ -12,125 +12,144 @@ and constraints are low-risk (plain Verilog, pin numbers copied from a
 verified working project). The Tcl script's block-design portion
 (PS7 clock config, Clocking Wizard, reset) is a reasonable, standard-
 pattern starting point but genuinely untested — expect to iterate on it
-inside Vivado rather than have it work first try.
+inside Vivado rather than have it work first try. Where a step is
+uncertain, it says so and gives a fallback rather than pretending it's
+solved.
 
-## Prerequisites
+Work through this top to bottom. Each unchecked box is one concrete
+action or one pass/fail check — don't skip ahead if one fails, since
+later steps assume earlier ones actually passed.
 
-- Vivado 2021.2 (matching the reference projects; a newer version will
-  likely work but may prompt IP upgrades)
-- The EBAZ4205 board, a USB-JTAG adapter, a USB-UART adapter (see
-  "JTAG and UART adapters" below for the two boards you actually have)
-- For Phase 2: one AD9226 module wired per `docs/WIRING.md` §2, with its
-  own external power supply
+## 0. Prerequisites
 
-## JTAG and UART adapters
+- [ ] Vivado 2021.2 installed (matching the reference projects; a newer
+      version will likely work but may prompt IP upgrades on open)
+- [ ] EBAZ4205 board in hand
+- [ ] Both FT2232H adapter boards in hand (see §1 for which does what)
+- [ ] One AD9226 module + its own external 5V supply (needed from §3
+      onward, not for §2's LED-only check)
+- [ ] This repo cloned/available locally where Vivado can reach it
+
+## 1. JTAG and UART adapter setup
 
 Both boards you have are generic **FTDI FT2232H** breakouts (a dual-
-channel USB-to-serial/JTAG chip) — one a larger "FT2232H Mini Module"
-style board, one a smaller module, both silkscreened `FT2232H`. Neither
-is a genuine Xilinx Platform Cable or Digilent adapter, but the FT2232H
-is the same chip Digilent's own HS2/HS3 JTAG cables use, so this is a
-well-trodden (if slightly more manual) path.
+channel USB-to-serial/JTAG chip), not genuine Xilinx/Digilent cables —
+but the FT2232H is the same chip Digilent's own HS2/HS3 cables use, so
+this is a well-trodden path, just with one extra setup step.
 
-**JTAG wiring**: the FT2232H's JTAG mode (MPSSE) uses a **fixed** pin
-mapping on whichever channel you use for JTAG — this is a hardware
-property of the chip, not something to configure:
+- [ ] Pick one FT2232H board for **JTAG**, the other for **UART**.
+- [ ] Locate the JTAG header/pads on the EBAZ4205 (a small header near
+      the Zynq chip, separate from DATA1/2/3 — possibly unpopulated
+      stamp holes needing a header soldered on). Send a close-up photo
+      of the area around the Zynq if it's not obvious.
+- [ ] Wire the JTAG board's channel A pins to the EBAZ4205's JTAG header
+      using the FT2232H's **fixed** MPSSE mapping (a hardware property
+      of the chip, not configurable):
 
-| FT2232H MPSSE pin | JTAG signal |
-|---|---|
-| ADBUS0 (or BDBUS0 on the other channel) | TCK |
-| ADBUS1 / BDBUS1 | TDI |
-| ADBUS2 / BDBUS2 | TDO |
-| ADBUS3 / BDBUS3 | TMS |
+      | FT2232H pin | JTAG signal |
+      |---|---|
+      | ADBUS0 | TCK |
+      | ADBUS1 | TDI |
+      | ADBUS2 | TDO |
+      | ADBUS3 | TMS |
 
-Wire those four (plus a shared `GND`) from one channel of your JTAG
-board to the EBAZ4205's JTAG header — Xilinx 7-series JTAG programming
-doesn't need `TRST`. You'll need to locate the JTAG header/pads on the
-physical board (a small header near the Zynq chip, separate from
-DATA1/2/3, possibly unpopulated stamp holes needing a header soldered
-on) — send a close-up photo of the area around the Zynq if it's not
-obvious and I'll help identify it.
+      Plus a shared `GND`. Xilinx 7-series JTAG programming doesn't
+      need `TRST`.
+- [ ] Choose a programming path for the JTAG adapter (pick one):
+  - [ ] **Path A (recommended, simpler)**: install `openFPGALoader`.
+        No EEPROM reprogramming needed — it supports generic FT2232H
+        boards for Xilinx 7-series JTAG directly.
+  - [ ] **Path B**: use FTDI's `FT_PROG` to reflash the FT2232H's EEPROM
+        to a Digilent-compatible VID/PID, then install Digilent's Adept
+        runtime so Vivado's own Hardware Manager recognizes it natively.
+- [ ] Wire the UART board to the EBAZ4205's `J7` header (silkscreened
+      `VCC RXD TXD GND`, confirmed from your board photo): adapter
+      `TXD`→`J7 RXD`, adapter `RXD`→`J7 TXD`, `GND`→`GND` (crossed, as
+      usual). Leave the adapter's own `VCC`/`3V` pin disconnected —
+      these boards are USB-powered and only need the three data/ground
+      lines.
+- [ ] Install a serial terminal (minicom, PuTTY, or `screen`) — don't
+      need to connect yet, just confirm it opens a port at 115200 8N1.
 
-**Software to actually program the FPGA with a generic FT2232H** (pick
-one, don't need both):
-- **openFPGALoader** (open source) supports generic FT2232H boards for
-  Xilinx 7-series JTAG programming directly — no special EEPROM
-  configuration needed. Probably the simplest path; use it to load the
-  bitstream after Vivado generates it, rather than Vivado's own Hardware
-  Manager.
-- Alternatively, reflash the FT2232H's EEPROM (with FTDI's `FT_PROG`
-  tool) to present as a Digilent-compatible VID/PID, install Digilent's
-  Adept runtime, and Vivado's Hardware Manager will then recognize it
-  natively as if it were a real Digilent cable. More setup, but keeps
-  you inside the Vivado GUI for programming.
+**Report back**: what actually worked (or the exact error) for
+programming-path A or B — this doc will get corrected once one is
+confirmed against your actual hardware.
 
-Neither of these has been tried against this exact board/chip
-combination here — treat as a starting point, report back what
-actually works (or what error you hit) and this doc will get corrected.
-
-**UART wiring**: use the *other* FT2232H board's UART mode. Connect its
-`TXD` → EBAZ4205 `J7` `RXD`, its `RXD` → `J7` `TXD` (crossed, as usual
-for a straight cable), and `GND` → `GND` (`J7` is silkscreened
-`VCC RXD TXD GND`, confirmed from your earlier board photo). Leave the
-adapter's own `VCC`/`3V` pin disconnected unless you specifically need
-it as a level reference — most of these boards are self-powered from
-USB and just need the three data-ground lines to talk to the board's
-3.3V UART. Open a serial terminal (minicom, PuTTY, `screen`) at
-115200 8N1 once PetaLinux is running to get a console.
-
-## Phase 1 — heartbeat LED (no ADC needed)
+## 2. Phase 1 — heartbeat LED (no ADC needed)
 
 Goal: prove the board boots a bitstream and the PS7→PL clock path works,
 before wiring anything else up.
 
-1. `cd vivado && vivado -mode batch -source create_project.tcl`
-   (or open Vivado and run `source create_project.tcl` in the Tcl
-   console) — creates the project and block design.
-2. Open the project in the Vivado GUI.
-3. Double-click the `system.bd` block design, open the `processing_system7_0`
-   IP, and check the **Clock Configuration** page — confirm what FCLK0
-   actually comes out at given this board's real oscillator, and adjust
-   `PCW_FCLK0_PERIPHERAL_DIVISOR0/1` if it's not landing near 50 MHz
-   (the script's guessed divisors are a starting point, not verified).
-4. Regenerate the block design output products if prompted.
-5. Run Synthesis → Implementation → Generate Bitstream from the Flow
-   Navigator.
-6. Program the device (Hardware Manager, or export the bitstream for a
-   PetaLinux boot flow later).
-7. **Check**: both LEDs should blink at roughly 1 Hz. If they don't
-   light at all, suspect JTAG/power/board-prep issues before suspecting
-   the RTL. If they light but at the wrong rate, the actual FCLK0/64 MHz
-   clocking-wizard output isn't what was assumed — go back to step 3.
+- [ ] `cd vivado && vivado -mode batch -source create_project.tcl`
+      (or open Vivado, then run `source create_project.tcl` in the Tcl
+      console) — creates the project and block design.
+- [ ] Open the project in the Vivado GUI.
+- [ ] Double-click the `system.bd` block design, open the
+      `processing_system7_0` IP, and check the **Clock Configuration**
+      page — confirm what FCLK0 actually comes out at given this
+      board's real oscillator.
+  - [ ] If it's not landing near 50 MHz, adjust
+        `PCW_FCLK0_PERIPHERAL_DIVISOR0/1` (the script's values are a
+        starting guess, not verified).
+- [ ] Regenerate the block design output products if Vivado prompts for
+      it.
+- [ ] Run Synthesis (Flow Navigator).
+- [ ] Run Implementation.
+- [ ] Generate Bitstream.
+- [ ] Connect the JTAG adapter (per §1) and open the Hardware Manager.
+- [ ] Program the device.
+- [ ] **Check: do both LEDs blink at roughly 1 Hz?**
+  - [ ] Yes → Phase 1 done, go to §3.
+  - [ ] No light at all → suspect JTAG connection, board power, or the
+        board-prep mods (SD boot resistor, etc.) before suspecting the
+        RTL. Re-check §1's JTAG wiring and programming path first.
+  - [ ] Lights blink, but clearly not ~1 Hz → the real FCLK0/64 MHz
+        clocking-wizard output isn't what was assumed. Go back to the
+        Clock Configuration check above and re-derive the actual
+        frequency, then rebuild.
 
-## Phase 2 — AD9226 #1 capture
+## 3. Phase 2 — AD9226 #1 capture
 
-Goal: get real ADC samples into the PL and visible somehow (ILA/logic
+Goal: get real ADC samples into the PL and visible somehow (an ILA/logic
 analyzer probe is the simplest first check — no PS/host software needed
 yet).
 
-1. Wire AD9226 #1 to the DATA3 header per `docs/WIRING.md` §2, including
-   its own external power supply and (recommended) the RF input-
-   conditioning modification in §4.
-2. Confirm the AD9226 module's output format strap (two's complement vs.
-   offset binary, `docs/WIRING.md` §4) — `adc_sampler.v` just passes the
-   bus through, so whatever format the ADC outputs is what you'll see;
-   there's no format conversion to hide a mismatch.
-3. In Vivado, add an **Integrated Logic Analyzer (ILA)** debug core
-   probing `adc1_data_sync`, `adc1_otr_sync`, and `adc1_valid_sync` from
-   `top.v` (Set Up Debug in the Flow Navigator, or a `mark_debug`
-   attribute on those nets before synthesis).
-4. Rebuild, program, and feed a known test tone (a few MHz, well under
-   the 32 MHz Nyquist limit) into the AD9226's RF input.
-5. **Check**: in the Hardware Manager's ILA waveform, `adc1_data_sync`
-   should show a moving 12-bit value tracking the input tone, `sys_valid`
-   should pulse steadily, and `adc1_otr_sync` should stay low unless
-   you're intentionally overdriving the input.
-
-**If `adc1_data_sync` is stuck (flat, all-0s, or all-1s) despite correct
-wiring and a good input signal**: check the module's `OEB` pin is tied
-low (`docs/WIRING.md` §4) before suspecting the FPGA/HDL side — AD9226
-tri-states its outputs whenever `OEB` isn't held low, which looks
-identical to a wiring or clocking fault from the digital side.
+- [ ] Wire AD9226 #1 to the DATA3 header per `docs/WIRING.md` §2.
+- [ ] Power the AD9226 module from its own external 5V supply (not the
+      EBAZ4205 header — see `docs/WIRING.md` §4).
+- [ ] (Recommended, not blocking) Apply the RF input-conditioning
+      modification from `docs/WIRING.md` §4 before connecting an
+      antenna.
+- [ ] Confirm the AD9226 module's `OEB` pin is tied low (`docs/WIRING.md`
+      §4) — required for the ADC to drive its outputs at all.
+- [ ] Note which output format the module uses (two's complement vs.
+      offset binary, `docs/WIRING.md` §4's R32–R35 strap) if you've been
+      able to confirm it — `adc_sampler.v` passes the bus through as-is,
+      with no format conversion to hide a mismatch.
+- [ ] In Vivado, add an **Integrated Logic Analyzer (ILA)** debug core
+      probing `adc1_data_sync`, `adc1_otr_sync`, and `adc1_valid_sync`
+      from `top.v` (Flow Navigator → Set Up Debug, or a `mark_debug`
+      attribute on those nets before synthesis).
+- [ ] Rebuild (synthesis → implementation → bitstream) and program the
+      device.
+- [ ] Feed a known test tone (a few MHz, well under the 32 MHz Nyquist
+      limit) into the AD9226's RF input.
+- [ ] Open the ILA waveform in the Hardware Manager and trigger a
+      capture.
+- [ ] **Check: does `adc1_data_sync` show a moving 12-bit value tracking
+      the input tone?**
+  - [ ] Yes, and `sys_valid` pulses steadily, and `adc1_otr_sync` stays
+        low → Phase 2 done.
+  - [ ] `adc1_data_sync` is stuck (flat, all-0s, or all-1s) → check
+        `OEB` is actually tied low before suspecting the FPGA/HDL side;
+        a floating/high `OEB` tri-states the ADC's outputs, which looks
+        identical to a wiring or clocking fault from the digital side.
+  - [ ] Data moves but looks like noise / doesn't track the tone →
+        re-check the DATA3 pin wiring against `docs/WIRING.md` §2
+        (easy to swap two data-bit wires on a hand-wired ribbon) and the
+        64 MHz sample clock is actually reaching the ADC.
+  - [ ] `adc1_otr_sync` is stuck high → you're overdriving the ADC input;
+        reduce the test tone level.
 
 ## What comes after this
 
