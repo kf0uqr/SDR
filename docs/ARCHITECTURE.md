@@ -196,6 +196,9 @@ Given a small additional budget, in priority order:
    overload matters more here than in a 14/16-bit design.
 7. *(Stretch)* a second ADF4351/synthesizer if full-duplex operation
    becomes a goal later.
+8. **Dedicated Raspberry Pi** (4 or 5) as the demod/UI host once the PC-
+   based development workflow (§6a) is working — turns the project into
+   a standalone box. Not urgent; a PC covers this role during bring-up.
 
 ## 6. Digital backend (Zynq-7010 on EBAZ4205)
 
@@ -217,12 +220,39 @@ Given a small additional budget, in priority order:
 ### PS (Cortex-A9, Linux)
 - Reuse/extend wallufo's approach: PetaLinux + a streaming server
   (TCP or similar) moving raw or lightly-decimated I/Q-or-real samples
-  to a host.
-- Host-side: GNU Radio (or a custom app, following guido57's Qt5/FT8
-  precedent) does spectrum display, demod, and any digital-mode
-  decoding — keeping "all modes" a software concern.
-- Later option: self-contained operation (demod/modulate on the PS/PL,
-  audio in/out, no host PC) once the RF chains and streaming are solid.
+  to a host, and accepting control commands back (frequency, mode,
+  band-select, PTT) over the same or a second link. The PS's job stays
+  deliberately thin: PL register/DMA access and framing samples for the
+  network — no demod, no UI, so it stays light regardless of which host
+  is on the other end (§6a).
+
+### Demod/UI host — PC now, dedicated Pi later
+
+The Zynq's dual A9 cores are the wrong place to run GNU Radio flowgraphs,
+waterfall rendering, or FT8-class decoding — that work belongs on a
+separate, more capable host, kept fully decoupled from the Zynq side by
+the streaming protocol above:
+
+- **Now (development)**: a PC on the same network (or USB/Ethernet
+  direct) runs GNU Radio / the custom Qt5 app (à la guido57) / Python
+  tooling against the Zynq's sample stream. This is the fastest path to
+  iterate on DDC parameters, demod algorithms, and UI while the RF/PL
+  side is still being brought up.
+- **Later (deployment)**: swap the PC for a dedicated Raspberry Pi
+  (4 or 5) running the identical software stack, turning the whole
+  transceiver into a standalone box — no PC required. Because the PS
+  only ever speaks a network protocol to "the host," this swap should be
+  a non-event: same server on the Zynq, same client software on the new
+  host, just a different machine at the other end of the Ethernet cable.
+- **Design implication**: keep the Zynq↔host interface protocol-defined
+  and host-agnostic from day one (documented sample format, command set,
+  transport) rather than anything PC-specific (e.g. avoid X11 forwarding,
+  filesystem shares, or other conveniences that only work because it's a
+  PC on the bench) — that discipline now is what makes the later Pi swap
+  free instead of a rewrite.
+- Once on a Pi, self-contained operation (demod/modulate entirely on the
+  Pi with the Zynq as a "radio peripheral," audio in/out on the Pi, no
+  separate PC ever needed) is the natural end state.
 
 ## 7. Key risks / open design items
 
