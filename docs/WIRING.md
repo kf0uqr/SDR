@@ -30,7 +30,7 @@ i.e. there's a 12 V rail routed near each header, not just signal pins
 inside the 20-pin block. This means the AD9226 modules may be powerable
 from that rail instead of a fully separate bench supply, **if** the
 module's onboard regulator accepts 12 V input — check the module's own
-input rating before relying on this (see §8's checklist).
+input rating before relying on this (see §9's checklist).
 
 Also visible and confirmed on this board: a microSD slot (supports the
 SD-boot path assumed in `docs/BRINGUP.md`), a Winbond NAND flash chip
@@ -45,7 +45,7 @@ file seen so far — **pins 1–4, 10, and 12 are presumably power/ground
 rails** (common on this style of header) but that is inferred, not
 confirmed from a schematic. The `GND`/`12V IN` silkscreen text confirms
 *some* pins nearby carry power, but not yet which specific numbered
-pins — see §8 for how to pin that down with a multimeter.
+pins — see §9 for how to pin that down with a multimeter.
 
 ## 2. DATA3 header → AD9226 (Chain A, ADC #1)
 
@@ -372,7 +372,68 @@ requirement noted in §6 for feeding the ADF435x's differential `+LO`/
   datasheet are identifiable, rather than assuming it's automatically
   sufficient.
 
-## 8. What's still unverified — continuity-check procedure
+## 8. Digital step attenuator and wideband LNAs (×2)
+
+From a photo of the user's actual modules — these fill two of the
+hardware-budget items in `docs/ARCHITECTURE.md` §5 (RF buffer/driver
+amps and RX attenuation) that were previously just wishlist entries;
+both are already on hand.
+
+### Digital step attenuator
+
+`RFin`/`RFout` SMA, small QFN chip (`U1`, marking not legible), and a
+control header `P3` silkscreened `V1 V2 V3 V4 V5 V6 +5V` plus `D1`/`D2`
+(likely ESD/bias protection diodes, not functionally relevant here).
+Six parallel binary control bits (`V1`–`V6`) is the standard interface
+for common digital step attenuator chips in this class (e.g.
+PE4302-style: 0.5 dB LSB, up to 31.5 dB range across the 6 bits, each
+bit toggling a fixed dB increment) — exact chip and per-bit dB weighting
+unconfirmed since the QFN marking isn't legible, but the 6-bit parallel
+interface itself is clear from the silkscreen.
+
+- **New control requirement**: this needs **6 GPIO output bits** from
+  the PL (plus the `+5V` supply, separate from the digital logic level
+  driving `V1`–`V6`) — add this to the GPIO allocation in
+  `docs/ARCHITECTURE.md` §6 alongside the RF-switch/filter-bank and PTT
+  control already planned there.
+- **Logic level unconfirmed**: whether `V1`–`V6` accept 3.3V logic
+  directly from the Zynq's GPIO (common for this chip class, but not
+  universally guaranteed) needs checking once the exact chip is
+  identifiable, or by testing — don't assume compatibility without
+  checking, since driving a 5V-only logic input from 3.3V GPIO may not
+  reliably register a "high."
+- **Purpose in the design**: this is exactly the RX front-end
+  attenuation called for in `docs/ARCHITECTURE.md` §7 (ADC/DAC dynamic
+  range risk) — placed ahead of the ADC (and/or ahead of the LNA,
+  depending on desired AGC strategy) to protect the 12-bit ADCs from
+  overload on strong signals, under PL control as part of an AGC loop.
+
+### Wideband LNA (×2, identical modules)
+
+Silkscreened directly with specs: `Freq: 0.1-2000MHz`, `Gain: 30+dB`,
+`Vcc: 9-12V`, plus `RFin`/`RFout` SMA and a 2-pin `GND`/`VCC` power
+header.
+
+- **Separate power rail needed**: 9–12V is a different supply voltage
+  from every other module in this design (AD9226 wants 5V, DAC902E's
+  `V+` is unconfirmed-but-likely-5V-class, ADF435x wants 5V) — budget a
+  dedicated 9–12V rail (or a small boost/buck arrangement from whatever
+  supply is already planned) just for these two LNAs.
+- **High gain — use with the attenuator, not instead of it**: 30+dB of
+  gain across essentially the whole HF-to-low-microwave range this
+  design targets is a lot — on its own it would make ADC/mixer overload
+  on strong signals *more* likely, not less. Pair each LNA with the
+  step attenuator above (LNA for sensitivity on weak signals,
+  attenuator for protecting against strong ones) rather than treating
+  the LNA as a free win; where exactly in the chain each LNA goes (front
+  of the whole RX path vs. per-band, ahead of or behind filtering)
+  is a design decision for when the filter bank (§ budget item 3) gets
+  built out.
+- Having two identical units suggests one per RX chain (Chain A and
+  Chain B each get their own LNA) is the natural allocation, consistent
+  with the two independent RX chains in `docs/ARCHITECTURE.md` §2.
+
+## 9. What's still unverified — continuity-check procedure
 
 Do these with a multimeter in continuity/diode-test mode, board
 **unpowered**, before wiring anything permanently. Report back what you

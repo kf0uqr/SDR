@@ -197,18 +197,24 @@ Given a small additional budget, in priority order:
    discrete LC filter modules are widely available.
 4. **IF filter** for Chain B (crystal or ceramic filter at whatever IF
    you settle on) — narrow enough for SSB/CW selectivity.
-5. **RF buffer/driver amps** for the ADC input and DAC output (impedance
-   matching, gain to overcome mixer conversion loss) if the "other amps"
-   already on hand don't cover these specific spots.
+5. ~~RF buffer/driver amps~~ — **already on hand**: 2× wideband
+   0.1–2000 MHz, 30+ dB gain LNA modules (confirmed from photos, see
+   `docs/WIRING.md` §8), one per RX chain. High gain like this needs to
+   be paired with the attenuator below rather than used alone — see §8
+   for why.
 5a. **Clock buffer/driver for the DAC902E's CLK input** — that module
     takes its sample clock via SMA/coax, not a header pin (confirmed
     from the user's module, `docs/WIRING.md` §5), so the PL's DUC clock
     needs a proper 50 Ω-capable driver between the FPGA and each DAC's
     CLK jack, not a bare GPIO wire. A small clock-distribution buffer IC
     or RF buffer amp covers this for both DAC902E modules.
-6. **Attenuator pads / step attenuator** for RX front-end gain control —
-   12-bit ADCs have limited dynamic range (§7.4), so protecting against
-   overload matters more here than in a 14/16-bit design.
+6. ~~Attenuator pads / step attenuator~~ — **already on hand**: a
+   digital step attenuator module (6-bit parallel control, `V1`–`V6`,
+   confirmed from a photo, see `docs/WIRING.md` §8). 12-bit ADCs have
+   limited dynamic range (§7.4), so this plus the LNAs above give the
+   RX front end both gain and protection against overload — but the
+   attenuator needs 6 new PL GPIO output bits (§6) that weren't
+   accounted for before.
 7. *(Stretch)* a second ADF4351/synthesizer if full-duplex operation
    becomes a goal later.
 8. **Dedicated Raspberry Pi** (4 or 5) as the demod/UI host once the PC-
@@ -228,7 +234,9 @@ Given a small additional budget, in priority order:
   bottleneck.
 - DUC per TX channel: NCO + interpolation feeding each DAC902E.
 - Control: SPI master for ADF4351 and AD9850, GPIO for RF-switch/filter-
-  bank selection and TX/RX (PTT) sequencing.
+  bank selection, TX/RX (PTT) sequencing, and 6 output bits per
+  attenuator for the digital step attenuators (`docs/WIRING.md` §8) —
+  one 6-bit AGC control word per RX chain.
 - Clock generation: MMCM-derived ADC/DAC sample clocks (64 MSPS class
   for the ADCs, matching the proven design; up to ~165 MSPS for the
   DACs). Note the DAC902E modules take their sample clock via a
