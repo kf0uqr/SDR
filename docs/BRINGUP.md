@@ -71,20 +71,25 @@ plan.
       reportedly covers this and general bring-up — worth a read, though
       it couldn't be fetched from here to fold its specifics into this
       doc; flag anything from it worth capturing here.)
-- [ ] Wire the JTAG board's channel A (`ADBUS`) pins to the EBAZ4205's
-      JTAG header using the FTDI chip's **fixed** MPSSE mapping (a
-      hardware property of the chip, not configurable, and the same on
-      FT2232H or FT4232H):
+- [x] Wire the JTAG board's channel A (`ADBUS`) pins to the EBAZ4205's
+      JTAG header (`J8`) using the FTDI chip's **fixed** MPSSE mapping —
+      **confirmed by an annotated photo of the user's actual board**,
+      matching the predicted mapping exactly:
 
-      | FTDI pin | JTAG signal |
-      |---|---|
-      | ADBUS0 | TCK |
-      | ADBUS1 | TDI |
-      | ADBUS2 | TDO |
-      | ADBUS3 | TMS |
+      | FTDI pin | JTAG signal | EBAZ4205 `J8` pin |
+      |---|---|---|
+      | ADBUS0 | TCK | `TCK` |
+      | ADBUS1 | TDI | `TDI` |
+      | ADBUS2 | TDO | `TDO` |
+      | ADBUS3 | TMS | `TMS` |
+      | `GND` (ADBUS-side power column) | — | `GND`/board ground |
 
-      Plus a shared `GND`. Xilinx 7-series JTAG programming doesn't
-      need `TRST`.
+      `J8`'s own silkscreen (confirmed separately) lists its 5 pins as
+      `TDI`/`TDO`/`TCK`/`TMS`/`VCC` — wire `VCC` to the FT board's `VCC`
+      sense pin if it has one (many JTAG probes use this to sense the
+      target's logic level rather than to supply power — don't treat it
+      as a power source either direction). Xilinx 7-series JTAG
+      programming doesn't need `TRST`.
 - [ ] Choose a programming path for the JTAG adapter (pick one):
   - [ ] **Path A (simplest, no Vivado dependency)**: install
         `openFPGALoader`. No EEPROM reprogramming needed — it supports
@@ -127,12 +132,17 @@ plan.
       pins disconnected — it's USB-powered and, per its own silkscreen
       ("3V logic, 5V safe"), only needs the three data/ground lines to
       talk to the EBAZ4205's 3.3V UART.
-- [ ] *(Optional simplification, not required)*: since the JTAG board
-      likely has two spare UART-only channels (C/D) if it's really an
-      FT4232H, it could serve as **both** the JTAG and UART adapter on
-      its own via a second USB connection — one board doing double duty
-      instead of two. Not necessary if the two-board plan is already
-      working; mentioned in case it's more convenient.
+- [ ] *(Optional simplification — now fully specified, not just
+      theoretical)*: the same annotated photo confirms this FT4232H
+      board's **channel C** (`CDBUS`) is wired for UART on this exact
+      board layout: `CDBUS0`=`TXD`, `CDBUS1`=`RXD`, plus a nearby `GND`.
+      That means this single board can provide **both** JTAG (channel
+      A) and UART (channel C) at once via a second USB connection —
+      genuinely replacing the separate Adafruit FT232H board, not just a
+      hypothetical. Wire `CDBUS0`→`J7 RXD`, `CDBUS1`→`J7 TXD` (crossed,
+      as usual), `GND`→`J7 GND`. Not required if the two-board plan
+      below is already working or simpler to keep separate — but this is
+      now a concrete option, not a maybe.
 - [ ] Install a serial terminal (minicom, PuTTY, or `screen`) — don't
       need to connect yet, just confirm it opens a port at 115200 8N1.
 
