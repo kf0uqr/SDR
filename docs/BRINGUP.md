@@ -22,11 +22,16 @@ later steps assume earlier ones actually passed.
 
 ## 0. Prerequisites
 
-- [ ] Vivado 2021.2 installed (matching the reference projects; a newer
-      version will likely work but may prompt IP upgrades on open)
-- [ ] EBAZ4205 board in hand
-- [ ] Both FTDI adapter boards in hand (see §1 for which does what —
-      one is likely FT4232H, the other confirmed FT232H, per photos)
+- [x] Vivado installed — 2026.1, not the reference projects' 2021.2;
+      that's fine, the EBAZ4205's Zynq-7010 stays supported across
+      Vivado releases, but expect an IP-upgrade prompt on first open of
+      `vivado/create_project.tcl`'s generated project (Clocking Wizard,
+      PS7, proc_sys_reset are all versioned IP — accept the upgrade).
+- [ ] EBAZ4205 board in hand, with pins soldered to its JTAG and UART
+      header pads
+- [ ] Both FTDI adapter boards in hand with pins soldered (JTAG board
+      likely FT4232H, UART board confirmed Adafruit FT232H, per
+      photos) — see §1 for wiring
 - [ ] One AD9226 module + its own external 5V supply (needed from §3
       onward, not for §2's LED-only check)
 - [ ] This repo cloned/available locally where Vivado can reach it
@@ -60,10 +65,12 @@ plan.
       normal case for this board's PS I/O, per the PS7 MIO config in
       `vivado/create_project.tcl`, but verify rather than assume for
       the specific JTAG pins).
-- [ ] Locate the JTAG header/pads on the EBAZ4205 (a small header near
-      the Zynq chip, separate from DATA1/2/3 — possibly unpopulated
-      stamp holes needing a header soldered on). Send a close-up photo
-      of the area around the Zynq if it's not obvious.
+- [x] Locate the JTAG header/pads on the EBAZ4205 — done, pins already
+      soldered to the board's JTAG and UART jumpers. (A community
+      write-up at theokelo.co.ke/getting-starting-with-ebaz4205-zynq-7000/
+      reportedly covers this and general bring-up — worth a read, though
+      it couldn't be fetched from here to fold its specifics into this
+      doc; flag anything from it worth capturing here.)
 - [ ] Wire the JTAG board's channel A (`ADBUS`) pins to the EBAZ4205's
       JTAG header using the FTDI chip's **fixed** MPSSE mapping (a
       hardware property of the chip, not configurable, and the same on
@@ -79,12 +86,38 @@ plan.
       Plus a shared `GND`. Xilinx 7-series JTAG programming doesn't
       need `TRST`.
 - [ ] Choose a programming path for the JTAG adapter (pick one):
-  - [ ] **Path A (recommended, simpler)**: install `openFPGALoader`.
-        No EEPROM reprogramming needed — it supports generic FT2232H/
-        FT4232H boards for Xilinx 7-series JTAG directly.
-  - [ ] **Path B**: use FTDI's `FT_PROG` to reflash the chip's EEPROM to
-        a Digilent-compatible VID/PID, then install Digilent's Adept
-        runtime so Vivado's own Hardware Manager recognizes it natively.
+  - [ ] **Path A (simplest, no Vivado dependency)**: install
+        `openFPGALoader`. No EEPROM reprogramming needed — it supports
+        generic FT2232H/FT4232H boards for Xilinx 7-series JTAG
+        directly.
+  - [ ] **Path B (recommended if staying in the Vivado GUI)**: recent
+        Vivado versions (2026.1 included) ship an **official
+        `program_ftdi` utility** built for exactly this — it reflashes
+        FT232H/FT2232H/FT4232H EEPROMs to be Digilent-JTAG-compatible,
+        properly (unlike generic `FT_Prog`, which a widely-repeated
+        warning says can corrupt a chip's EEPROM if misused — that
+        warning is specifically about **genuine Digilent cables**, not
+        relevant to these generic boards, but `program_ftdi` is the
+        safer, purpose-built tool either way). Run it from Vivado's Tcl
+        console or command line per its own `-help`; no separate
+        Digilent Adept install needed since it's part of the same
+        toolchain already being installed.
+        - **Caveat**: some cheap FT2232H/FT4232H boards from AliExpress-
+          class sellers ship a smaller EEPROM (128-byte 93C46) than these
+          tools expect (256-byte 93C66) — if `program_ftdi` or
+          `openFPGALoader` reports an EEPROM size/write error, this is
+          the first thing to suspect.
+  - [ ] **If the JTAG board is really an FT4232H** (§1's identification):
+        its channel A can do JTAG while channel B does UART
+        *simultaneously* from the same chip — so `program_ftdi`-style
+        configs commonly set up exactly that split (Port A = JTAG,
+        Port B = UART). This means the FT4232H board alone could
+        potentially replace the separate Adafruit FT232H for UART too,
+        per §1's "optional simplification" note — worth knowing before
+        deciding whether to bother wiring up the second board at all.
+        (An FT232H specifically, being single-channel, cannot do both
+        at once — irrelevant here since that's the board already
+        assigned to UART only.)
 - [ ] Wire the Adafruit FT232H board to the EBAZ4205's `J7` header
       (silkscreened `VCC RXD TXD GND`, confirmed from your board photo)
       using its labeled `D0`/`D1`/`Gnd` pins (bottom row) — FTDI's
